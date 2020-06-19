@@ -131,7 +131,7 @@ class Trainer(object):
 
         return 2 * self.params.batch_size
 
-    def load_training_dico(self, dico_train):
+    def load_training_dico(self, dico_train, size=0):
         """
         Load training dictionary.
         """
@@ -146,7 +146,7 @@ class Trainer(object):
             filename = '%s-%s.0-5000.txt' % (self.params.src_lang, self.params.tgt_lang)
             self.dico = load_dictionary(
                 os.path.join(DIC_EVAL_PATH, filename),
-                word2id1, word2id2
+                word2id1, word2id2, size=size
             )
         # dictionary provided by the user
         else:
@@ -177,6 +177,65 @@ class Trainer(object):
         M = B.transpose(0, 1).mm(A).cpu().numpy()
         U, S, V_t = scipy.linalg.svd(M, full_matrices=True)
         W.copy_(torch.from_numpy(U.dot(V_t)).type_as(W))
+
+
+    def bdma_step(self, stats):
+        """
+        Train the mapping.
+        """
+        self.mapping.train()
+
+        # Create batches.
+        A = self.src_emb.weight.data[self.dico[:, 0]]
+        B = self.tgt_emb.weight.data[self.dico[:, 1]]
+
+        # Shuffle.
+        r = torch.randperm(A.shape[0])
+        A = A[r]
+        B = B[r]
+
+        bs = self.params.batch_size
+        num_batches = int(A.shape[0] / bs)
+        avg_f_loss = 0.0; avg_b_loss = 0.0
+        for i in range(0, num_batches):
+            s = i * bs
+            e = (i + 1) * bs
+            x, y = A[s : e], B[s : e]
+
+            # Zero Grad.
+            self.map_optimizer.zero_grad()
+
+            # Predictions.
+            f_preds = self.mapping(x)
+
+            if self.params.bidirectional:
+                b_preds = self.mapping(y, fdir=False)
+
+            # Loss.
+            f_loss = F.mse_loss(f_preds, y)
+            b_loss = 0.0
+            if self.params.bidirectional:
+                b_loss = F.mse_loss(b_preds, x)
+                loss = f_loss + b_loss
+            else:
+                loss = f_loss
+
+            stats['MSE_COSTS'].append(loss.data.item())
+            avg_f_loss += f_loss
+            avg_b_loss += b_loss
+
+            # check NaN
+            if (loss != loss).data.any():
+                logger.error("NaN detected for BiFNN")
+                exit()
+
+            # optimizer.
+            loss.backward()
+            self.map_optimizer.step()
+            clip_parameters(self.mapping, self.params.map_clip_weights)
+
+        self.mapping.eval()
+        return avg_f_loss / num_batches, avg_b_loss / num_batches, num_batches
 
     def orthogonalize(self):
         """
@@ -239,6 +298,32 @@ class Trainer(object):
         W = self.mapping.weight.data
         assert to_reload.size() == W.size()
         W.copy_(to_reload.type_as(W))
+
+
+    def save_best_bdma(self, to_log, metric):
+        """
+        Save the best model for the given validation metric.
+        """
+        # best mapping for the given validation criterion
+        if to_log[metric] > self.best_valid_metric:
+            # new best mapping
+            self.best_valid_metric = to_log[metric]
+            logger.info('* Best value for "%s": %.5f' % (metric, to_log[metric]))
+
+            # save the mapping.
+            path = os.path.join(self.params.exp_path, 'best_mapping.pth')
+            logger.info('* Saving the mapping to %s ...' % path)
+            torch.save(self.mapping.state_dict(), path)
+
+    def reload_best_bdma(self):
+        """
+        Reload the best mapping.
+        """
+        path = os.path.join(self.params.exp_path, 'best_mapping.pth')
+        logger.info('* Reloading the best model from %s ...' % path)
+        # reload the model
+        assert os.path.isfile(path)
+        self.mapping.load_state_dict(torch.load(path))
 
     def export(self):
         """

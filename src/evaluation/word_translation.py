@@ -41,7 +41,7 @@ def load_identical_char_dico(word2id1, word2id2):
     return dico
 
 
-def load_dictionary(path, word2id1, word2id2):
+def load_dictionary(path, word2id1, word2id2, size=0):
     """
     Return a torch tensor of size (n, 2) where n is the size of the
     loader dictionary, and sort it by source word frequency.
@@ -54,6 +54,7 @@ def load_dictionary(path, word2id1, word2id2):
     not_found2 = 0
 
     with io.open(path, 'r', encoding='utf-8') as f:
+        cnt = 0
         for index, line in enumerate(f):
             assert line == line.lower()
             parts = line.rstrip().split()
@@ -63,6 +64,9 @@ def load_dictionary(path, word2id1, word2id2):
             word1, word2 = parts
             if word1 in word2id1 and word2 in word2id2:
                 pairs.append((word1, word2))
+                if size > 0 and cnt >= size: # Select limited size dictionary.
+                    break
+                cnt += 1
             else:
                 not_found += 1
                 not_found1 += int(word1 not in word2id1)
