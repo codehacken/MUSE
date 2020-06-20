@@ -7,6 +7,7 @@
 
 import os
 from logging import getLogger
+import numpy as np
 import scipy
 import scipy.linalg
 import torch
@@ -207,18 +208,14 @@ class Trainer(object):
 
             # Predictions.
             f_preds = self.mapping(x)
-
-            if self.params.bidirectional:
-                b_preds = self.mapping(y, fdir=False)
-
-            # Loss.
             f_loss = F.mse_loss(f_preds, y)
+            loss = f_loss
+
             b_loss = 0.0
             if self.params.bidirectional:
+                b_preds = self.mapping(y, fdir=False)
                 b_loss = F.mse_loss(b_preds, x)
-                loss = f_loss + b_loss
-            else:
-                loss = f_loss
+                loss += b_loss
 
             stats['MSE_COSTS'].append(loss.data.item())
             avg_f_loss += f_loss
@@ -340,12 +337,29 @@ class Trainer(object):
         normalize_embeddings(src_emb, params.normalize_embeddings, mean=params.src_mean)
         normalize_embeddings(tgt_emb, params.normalize_embeddings, mean=params.tgt_mean)
 
+        # Create copies of src_emb and tgt_emb
+        fin_src_emb = torch.from_numpy(np.zeros(src_emb.shape))
+        fin_tgt_emb = torch.from_numpy(np.zeros(tgt_emb.shape))
+
         # map source embeddings to the target space
         bs = 4096
         logger.info("Map source embeddings to the target space ...")
         for i, k in enumerate(range(0, len(src_emb), bs)):
             x = Variable(src_emb[k:k + bs], volatile=True)
-            src_emb[k:k + bs] = self.mapping(x.cuda() if params.cuda else x).data.cpu()
+            fin_src_emb[k:k + bs] = self.mapping(x.cuda() if params.cuda else x).data.cpu()
+
+        # write embeddings to the disk (SRC to TGT)
+        export_embeddings(fin_src_emb, tgt_emb, params)
+
+        # map target embeddings to the source space
+        bs = 4096
+        logger.info("Map target embeddings to the source space ...")
+        original = self.mapping.bidirectional
+        self.mapping.bidirectional = True
+        for i, k in enumerate(range(0, len(tgt_emb), bs)):
+            x = Variable(tgt_emb[k:k + bs], volatile=True)
+            fin_tgt_emb[k:k + bs] = self.mapping(x.cuda() if params.cuda else x, fdir=False).data.cpu()
+        self.mapping.bidirectional = original
 
         # write embeddings to the disk
-        export_embeddings(src_emb, tgt_emb, params)
+        export_embeddings(src_emb, fin_tgt_emb, params, direction="backward")

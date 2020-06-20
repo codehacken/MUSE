@@ -124,40 +124,37 @@ class BiFNN(nn.Module):
 
         # NOTE: The output dim needs to be changed to the size of the output embedding.
         layers = []
-
-        if self.bidirectional:
-            reverse = []
+        reverse = []
 
         for i in range(self.n_layers + 1):
             input_dim = self.emb_dim if i == 0 else self.n_hid_dim
             output_dim = self.emb_dim if i == self.n_layers else self.n_hid_dim
             layers.append(nn.Linear(input_dim, output_dim, bias=False))
-            if self.bidirectional:
-                reverse.insert(0, nn.Linear(output_dim, input_dim, bias=False))
+            reverse.insert(0, nn.Linear(output_dim, input_dim, bias=False))
 
-                if self.shared_params:
-                    weights = nn.Parameter(layers[-1].weight.data)
-                    layers[-1].weight.data = weights.clone()
-                    reverse[0].weight.data = layers[-1].weight.data.t()
+            if self.shared_params:
+                weights = nn.Parameter(layers[-1].weight.data)
+                layers[-1].weight.data = weights.clone()
+                reverse[0].weight.data = layers[-1].weight.data.t()
 
             if i < self.n_layers:
-                # layers.append(nn.LeakyReLU(0.2))
-                layers.append(nn.ReLU())
-                # layers.append(nn.Dropout(self.n_dropout))
+                layers.append(nn.LeakyReLU(0.1))
+                layers.append(nn.Dropout(self.n_dropout))
+                reverse.insert(0, nn.Dropout(self.n_dropout))
+                reverse.insert(0, nn.LeakyReLU(0.1))
 
-                if self.bidirectional:
-                    # reverse.insert(0, nn.Dropout(self.n_dropout))
-                    # reverse.insert(0, nn.LeakyReLU(0.2))
-                    reverse.insert(0, nn.ReLU())
-
+        # A reverse comparison for baseline is not necessarily apples-to-apples.
         self.layers = nn.Sequential(*layers)
+        self.reverse = nn.Sequential(*reverse)
 
-        if self.bidirectional:
-            self.reverse = nn.Sequential(*reverse)
+        print("---Network Structure---")
+        print(self.layers)
+        print(self.reverse)
 
     def forward(self, x, fdir=True):
         assert x.dim() == 2 and x.size(1) == self.emb_dim
         if self.bidirectional is True and fdir is False:
+            print("I am here!!!!")
             return self.reverse(x)
         else:
             return self.layers(x)

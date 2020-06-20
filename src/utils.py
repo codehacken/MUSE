@@ -424,7 +424,7 @@ def normalize_embeddings(emb, types, mean=None):
     return mean.cpu() if mean is not None else None
 
 
-def export_embeddings(src_emb, tgt_emb, params):
+def export_embeddings(src_emb, tgt_emb, params, direction="forward"):
     """
     Export embeddings to a text or a PyTorch file.
     """
@@ -432,8 +432,13 @@ def export_embeddings(src_emb, tgt_emb, params):
 
     # text file
     if params.export == "txt":
-        src_path = os.path.join(params.exp_path, 'vectors-%s.txt' % params.src_lang)
-        tgt_path = os.path.join(params.exp_path, 'vectors-%s.txt' % params.tgt_lang)
+        if direction == "forward":
+            src_path = os.path.join(params.exp_path, 'vectors-%s-f.txt' % params.src_lang)
+            tgt_path = os.path.join(params.exp_path, 'vectors-%s-f.txt' % params.tgt_lang)
+        elif direction == "backward":
+            src_path = os.path.join(params.exp_path, 'vectors-%s-b.txt' % params.src_lang)
+            tgt_path = os.path.join(params.exp_path, 'vectors-%s-b.txt' % params.tgt_lang)
+
         # source embeddings
         logger.info('Writing source embeddings to %s ...' % src_path)
         with io.open(src_path, 'w', encoding='utf-8') as f:
@@ -449,8 +454,13 @@ def export_embeddings(src_emb, tgt_emb, params):
 
     # PyTorch file
     if params.export == "pth":
-        src_path = os.path.join(params.exp_path, 'vectors-%s.pth' % params.src_lang)
-        tgt_path = os.path.join(params.exp_path, 'vectors-%s.pth' % params.tgt_lang)
+        if direction == "forward":
+            src_path = os.path.join(params.exp_path, 'vectors-%s-f.pth' % params.src_lang)
+            tgt_path = os.path.join(params.exp_path, 'vectors-%s-f.pth' % params.tgt_lang)
+        elif direction == "backward":
+            src_path = os.path.join(params.exp_path, 'vectors-%s-b.pth' % params.src_lang)
+            tgt_path = os.path.join(params.exp_path, 'vectors-%s-b.pth' % params.tgt_lang)
+
         logger.info('Writing source embeddings to %s ...' % src_path)
         torch.save({'dico': params.src_dico, 'vectors': src_emb}, src_path)
         logger.info('Writing target embeddings to %s ...' % tgt_path)
