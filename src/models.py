@@ -139,8 +139,10 @@ class BiFNN(nn.Module):
 
             if i < self.n_layers:
                 layers.append(nn.LeakyReLU(0.1))
-                layers.append(nn.Dropout(self.n_dropout))
-                reverse.insert(0, nn.Dropout(self.n_dropout))
+                if self.n_dropout > 0.0:
+                    layers.append(nn.Dropout(self.n_dropout))
+                    reverse.insert(0, nn.Dropout(self.n_dropout))
+
                 reverse.insert(0, nn.LeakyReLU(0.1))
 
         # A reverse comparison for baseline is not necessarily apples-to-apples.
@@ -154,44 +156,9 @@ class BiFNN(nn.Module):
     def forward(self, x, fdir=True):
         assert x.dim() == 2 and x.size(1) == self.emb_dim
         if self.bidirectional is True and fdir is False:
-            print("I am here!!!!")
             return self.reverse(x)
         else:
             return self.layers(x)
-
-# class BiFNN(nn.Module):
-#
-#     def __init__(self, params):
-#         super(BiFNN, self).__init__()
-#
-#         self.emb_dim = params.emb_dim
-#         self.n_layers = params.n_layers
-#         self.n_hid_dim = params.n_hid_dim
-#         self.n_dropout = params.n_dropout
-#         self.n_input_dropout = params.n_input_dropout
-#         self.bidirectional = params.bidirectional
-#         self.s2t = True
-#         self.basename = "layer"
-#
-#         # NOTE: The output dim needs to be changed to the size of the output embedding.
-#         self.layers = []
-#         for i in range(self.n_layers + 1):
-#             input_dim = self.emb_dim if i == 0 else self.n_hid_dim
-#             output_dim = self.emb_dim if i == self.n_layers else self.n_hid_dim
-#             param = nn.Parameter(torch.randn(input_dim, output_dim))
-#             self.register_parameter(name=self.basename + str(i+1), param=param)
-#             self.layers.append(param)
-#
-#     def forward(self, x):
-#         assert x.dim() == 2 and x.size(1) == self.emb_dim
-#         for i in range(self.n_layers + 1):
-#             x = F.linear(x, self.layers[i])
-#             if i < self.n_layers:
-#                 x = F.leaky_relu(x, 0.2)
-#                 x = F.dropout(x, self.n_dropout)
-#
-#         return x
-
 
 # Build the models for BDMA.
 def build_bdma_model(params, with_dis):

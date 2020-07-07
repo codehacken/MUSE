@@ -1,0 +1,8 @@
+en es data/word_vectors/en/wiki-news-300d-1M.vec data/word_vectors/es/wiki.es.bin 1
+es en data/word_vectors/es/wiki.es.bin data/word_vectors/en/wiki-news-300d-1M.vec 1
+en de data/word_vectors/en/wiki-news-300d-1M.vec data/word_vectors/de/wiki.de.bin 1
+de en data/word_vectors/de/wiki.de.bin data/word_vectors/en/wiki-news-300d-1M.vec 1
+en fr data/word_vectors/en/wiki-news-300d-1M.vec data/word_vectors/fr/wiki.fr.bin 1
+fr en data/word_vectors/fr/wiki.fr.bin data/word_vectors/en/wiki-news-300d-1M.vec 1
+en it data/word_vectors/en/wiki-news-300d-1M.vec data/word_vectors/it/wiki.it.bin 1
+it en data/word_vectors/it/wiki.it.bin data/word_vectors/en/wiki-news-300d-1M.vec 1
