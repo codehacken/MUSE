@@ -1,1 +1,2 @@
-fr en data/word_vectors/fr/wiki.fr.bin data/word_vectors/en/wiki-news-300d-1M.vec 1
+fr en data/word_vectors/fr/wiki.fr.bin data/word_vectors/en/wiki-news-300d-1M.vec 0
+en fr data/word_vectors/en/wiki-news-300d-1M.vec data/word_vectors/fr/wiki.fr.bin 0

@@ -152,6 +152,7 @@ class BiFNN(nn.Module):
         print("---Network Structure---")
         print(self.layers)
         print(self.reverse)
+        print("---Network Structure---")
 
     def forward(self, x, fdir=True):
         assert x.dim() == 2 and x.size(1) == self.emb_dim
