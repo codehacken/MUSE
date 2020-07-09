@@ -342,7 +342,7 @@ class Trainer(object):
         fin_tgt_emb = torch.from_numpy(np.zeros(tgt_emb.shape))
 
         # map source embeddings to the target space
-        bs = 4096
+        bs = 512
         logger.info("Map source embeddings to the target space ...")
         for i, k in enumerate(range(0, len(src_emb), bs)):
             x = Variable(src_emb[k:k + bs], volatile=True)
@@ -352,14 +352,14 @@ class Trainer(object):
         export_embeddings(fin_src_emb, tgt_emb, params)
 
         # map target embeddings to the source space
-        bs = 4096
+        bs = 512
         logger.info("Map target embeddings to the source space ...")
-        original = self.mapping.bidirectional
-        self.mapping.bidirectional = True
+        original = self.mapping.module.bidirectional
+        self.mapping.module.bidirectional = True
         for i, k in enumerate(range(0, len(tgt_emb), bs)):
             x = Variable(tgt_emb[k:k + bs], volatile=True)
             fin_tgt_emb[k:k + bs] = self.mapping(x.cuda() if params.cuda else x, fdir=False).data.cpu()
-        self.mapping.bidirectional = original
+        self.mapping.module.bidirectional = original
 
         # write embeddings to the disk
         export_embeddings(src_emb, fin_tgt_emb, params, direction="backward")

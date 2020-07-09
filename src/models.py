@@ -156,7 +156,7 @@ class BiFNN(nn.Module):
 
     def forward(self, x, fdir=True):
         assert x.dim() == 2 and x.size(1) == self.emb_dim
-        if self.bidirectional is True and fdir is False:
+        if self.shared_params is True and fdir is False:
             return self.reverse(x)
         else:
             return self.layers(x)
@@ -182,7 +182,8 @@ def build_bdma_model(params, with_dis):
         tgt_emb = None
 
     # Mapping
-    mapping = BiFNN(params)
+    mapping = nn.DataParallel(BiFNN(params)) # For multi-gpu parallelism.
+    # mapping = BiFNN(params)
 
     # if getattr(params, 'map_id_init', True):
     #     mapping.weight.data.copy_(torch.diag(torch.ones(params.emb_dim)))

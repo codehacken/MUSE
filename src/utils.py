@@ -457,6 +457,7 @@ def export_embeddings(src_emb, tgt_emb, params, direction="forward"):
         if direction == "forward":
             src_path = os.path.join(params.exp_path, 'vectors-%s-f.pth' % params.src_lang)
             tgt_path = os.path.join(params.exp_path, 'vectors-%s-f.pth' % params.tgt_lang)
+
         elif direction == "backward":
             src_path = os.path.join(params.exp_path, 'vectors-%s-b.pth' % params.src_lang)
             tgt_path = os.path.join(params.exp_path, 'vectors-%s-b.pth' % params.tgt_lang)

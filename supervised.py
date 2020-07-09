@@ -24,7 +24,7 @@ VALIDATION_METRIC_UNSUP = 'mean_cosine-csls_knn_10-S2T-10000'
 
 # main
 parser = argparse.ArgumentParser(description='Supervised training')
-parser.add_argument("--seed", type=int, default=-1, help="Initialization seed")
+parser.add_argument("--seed", type=int, default=0, help="Initialization seed")
 parser.add_argument("--verbose", type=int, default=2, help="Verbose level (2:debug, 1:info, 0:warning)")
 parser.add_argument("--exp_path", type=str, default="", help="Where to store experiment logs and models")
 parser.add_argument("--exp_name", type=str, default="debug", help="Experiment name")
