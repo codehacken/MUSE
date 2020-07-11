@@ -22,7 +22,7 @@ JOB_TYPE=$6
 SEED=$7
 
 # Pre-defined.
-N_HID_DIM=2048
+N_HID_DIM=1024
 MAX_VOCAB=200000 # Original is 400000
 
 # Verification...

@@ -197,39 +197,39 @@ class Trainer(object):
 
         bs = self.params.batch_size
         num_batches = int(A.shape[0] / bs)
-        avg_f_loss = 0.0; avg_b_loss = 0.0
+        avg_f_loss = 0.0; avg_b_loss = 0.0;
         for i in range(0, num_batches):
             s = i * bs
             e = (i + 1) * bs
             x, y = A[s : e], B[s : e]
 
+            # Forward optimization.
             # Zero Grad.
             self.map_optimizer.zero_grad()
 
             # Predictions.
             f_preds = self.mapping(x)
             f_loss = F.mse_loss(f_preds, y)
-            loss = f_loss
-
-            b_loss = 0.0
-            if self.params.bidirectional:
-                b_preds = self.mapping(y, fdir=False)
-                b_loss = F.mse_loss(b_preds, x)
-                loss += b_loss
-
-            stats['MSE_COSTS'].append(loss.data.item())
-            avg_f_loss += f_loss
-            avg_b_loss += b_loss
-
-            # check NaN
-            if (loss != loss).data.any():
-                logger.error("NaN detected for BiFNN")
-                exit()
 
             # optimizer.
-            loss.backward()
+            f_loss.backward()
             self.map_optimizer.step()
             clip_parameters(self.mapping, self.params.map_clip_weights)
+
+            # Reverse optimization.
+            if self.params.bidirectional:
+                self.map_optimizer.zero_grad()
+                b_preds = self.mapping(y, fdir=False)
+                b_loss = F.mse_loss(b_preds, x)
+
+                b_loss.backward()
+                self.map_optimizer.step()
+                clip_parameters(self.mapping, self.params.map_clip_weights)
+                avg_b_loss += b_loss.cpu()
+
+            # Collect loss information.
+            stats['MSE_COSTS'].append(f_loss.data.item())
+            avg_f_loss += f_loss.cpu()
 
         self.mapping.eval()
         return avg_f_loss / num_batches, avg_b_loss / num_batches, num_batches
