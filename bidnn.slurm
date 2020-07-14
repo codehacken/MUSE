@@ -2,10 +2,17 @@
 
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=8
-#SBATCH --gres=gpu:2
-#SBATCH --partition=gpu
+#SBATCH --gres=gpu:1
+#SBATCH --partition=gpu2018
 #SBATCH --output=output/slurm-%x.out
 #SBATCH --error=output/slurm-%x.err
+
+# This for large jobs. #SBATCH --gres=gpu:1
+# This for large jobs. #SBATCH --partition=gpu2018
+
+# #SBATCH --gres=gpu:2
+# #SBATCH --partition=gpu
+
 
 # Set the environment.
 source deactivate # Remove previous environments.
@@ -20,6 +27,8 @@ TGT_EMB=$4
 NUM_LAYERS=$5
 JOB_TYPE=$6
 SEED=$7
+ITERATE=$8
+VOCAB_SIZE=$9
 
 # Pre-defined.
 N_HID_DIM=1024
@@ -39,9 +48,9 @@ if [[ ( "$JOB_TYPE" == "baseline" ) ]]
 then
     echo "Training baseline model..."
     python bdma_sup.py --src_lang $SRC_LANG --tgt_lang $TGT_LANG \
-                       --src_emb $SRC_EMB --tgt_emb $TGT_EMB --n_refinement 20 \
+                       --src_emb $SRC_EMB --tgt_emb $TGT_EMB --n_refinement 20 --vocab_size $VOCAB_SIZE\
                        --dico_train default --n_layers $NUM_LAYERS --n_hid_dim $N_HID_DIM \
-                       --batch_size 256 --seed $SEED --export pth --shared True \
+                       --batch_size 128 --seed $SEED --export pth --shared True --iterative $ITERATE \
                        --exp_id ${NAME} 2> data/results/${NAME}.results
 fi
 
@@ -49,19 +58,19 @@ if [[ ( "$JOB_TYPE" == "bdma" ) ]]
 then
     echo "Training BDMA model..."
     python bdma_sup.py --src_lang $SRC_LANG --tgt_lang $TGT_LANG \
-                       --src_emb $SRC_EMB --tgt_emb $TGT_EMB --n_refinement 20 \
-                       --dico_train default --n_layers $NUM_LAYERS --n_hid_dim $N_HID_DIM \
-                       --batch_size 256 --seed $SEED --export pth --bidirectional True --shared False \
+                       --src_emb $SRC_EMB --tgt_emb $TGT_EMB --n_refinement 20 --vocab_size $VOCAB_SIZE \
+                       --dico_train default --n_layers $NUM_LAYERS --n_hid_dim $N_HID_DIM --iterative $ITERATE \
+                       --batch_size 128 --seed $SEED --export pth --bidirectional True --shared False \
                        --exp_id ${NAME} 2> data/results/${NAME}.results
 fi
 
 if [[ ( "$JOB_TYPE" == "bdma-shared" ) ]]
 then
     echo "Training BDMA shared model..."
-    python bdma_sup.py --src_lang $SRC_LANG --tgt_lang $TGT_LANG \
+    python bdma_sup.py --src_lang $SRC_LANG --tgt_lang $TGT_LANG --vocab_size $VOCAB_SIZE \
                        --src_emb $SRC_EMB --tgt_emb $TGT_EMB --n_refinement 20 \
-                       --dico_train default --n_layers $NUM_LAYERS --n_hid_dim $N_HID_DIM \
-                       --batch_size 256 --seed $SEED --export pth --bidirectional True --shared True \
+                       --dico_train default --n_layers $NUM_LAYERS --n_hid_dim $N_HID_DIM --iterative $ITERATE \
+                       --batch_size 128 --seed $SEED --export pth --bidirectional True --shared True \
                        --exp_id ${NAME} 2> data/results/${NAME}.results
 fi
 echo "Training Completed... Starting Evaluation..."
@@ -70,11 +79,11 @@ echo "Training Completed... Starting Evaluation..."
 python evaluate.py --src_lang $SRC_LANG --tgt_lang $TGT_LANG \
                    --src_emb dumped/debug/${NAME}/vectors-${SRC_LANG}-f.pth \
                    --tgt_emb dumped/debug/${NAME}/vectors-${TGT_LANG}-f.pth \
-                   --max_vocab $MAX_VOCAB --exp_id eval_${NAME}_f --cuda False \
+                   --max_vocab $MAX_VOCAB --exp_id eval_${NAME}_f --cuda True \
                    2> data/results/eval_${NAME}_f.results
 
 python evaluate.py --src_lang $TGT_LANG --tgt_lang $SRC_LANG \
                    --tgt_emb dumped/debug/${NAME}/vectors-${SRC_LANG}-b.pth \
                    --src_emb dumped/debug/${NAME}/vectors-${TGT_LANG}-b.pth \
-                   --max_vocab $MAX_VOCAB --exp_id eval_${NAME}_b --cuda False \
+                   --max_vocab $MAX_VOCAB --exp_id eval_${NAME}_b --cuda True \
                    2> data/results/eval_${NAME}_b.results
