@@ -17,7 +17,7 @@ from torch.nn import functional as F
 from .utils import get_optimizer, load_embeddings, normalize_embeddings, export_embeddings
 from .utils import clip_parameters
 from .dico_builder import build_dictionary
-from .evaluation.word_translation import DIC_EVAL_PATH, load_identical_char_dico, load_dictionary
+from .evaluation.word_translation import DIC_EVAL_PATH, load_identical_char_dico, load_dictionary, COM_DIC_EVAL_PATH
 
 
 logger = getLogger()
@@ -132,7 +132,7 @@ class Trainer(object):
 
         return 2 * self.params.batch_size
 
-    def load_training_dico(self, dico_train, size=0):
+    def load_training_dico(self, dico_train, size=0, descending=True):
         """
         Load training dictionary.
         """
@@ -147,7 +147,15 @@ class Trainer(object):
             filename = '%s-%s.0-5000.txt' % (self.params.src_lang, self.params.tgt_lang)
             self.dico = load_dictionary(
                 os.path.join(DIC_EVAL_PATH, filename),
-                word2id1, word2id2, size=size
+                word2id1, word2id2, size=size,
+                descending=descending
+            )
+        elif dico_train == "combined":
+            filename = '%s-%s.0-5000.txt' % (self.params.src_lang, self.params.tgt_lang)
+            self.dico = load_dictionary(
+                os.path.join(COM_DIC_EVAL_PATH, filename),
+                word2id1, word2id2, size=size,
+                descending=descending
             )
         # dictionary provided by the user
         else:
@@ -179,7 +187,6 @@ class Trainer(object):
         U, S, V_t = scipy.linalg.svd(M, full_matrices=True)
         W.copy_(torch.from_numpy(U.dot(V_t)).type_as(W))
 
-
     def bdma_step(self, stats):
         """
         Train the mapping.
@@ -197,6 +204,10 @@ class Trainer(object):
 
         bs = self.params.batch_size
         num_batches = int(A.shape[0] / bs)
+
+        if num_batches == 0:
+            num_batches = 1
+
         avg_f_loss = 0.0; avg_b_loss = 0.0;
         for i in range(0, num_batches):
             s = i * bs
@@ -232,7 +243,83 @@ class Trainer(object):
             avg_f_loss += f_loss.cpu()
 
         self.mapping.eval()
+        self.orthogonalize_bdma()
         return avg_f_loss / num_batches, avg_b_loss / num_batches, num_batches
+
+
+    def bdma_unsup_step(self, stats):
+        """
+        Train the mapping.
+        """
+        self.mapping.train()
+
+        # Create batches.
+        A = self.src_emb.weight.data
+        B = self.tgt_emb.weight.data
+
+        # Shuffle.
+        r_a = torch.randperm(A.shape[0])
+        A = A[r_a]
+
+        r_b = torch.randperm(B.shape[0])
+        B = B[r_b]
+
+        # Define batches.
+        bs = self.params.batch_size
+        n1 = int(A.shape[0] / bs)
+        n2 = int(B.shape[0] / bs)
+        num_batches = n1 if n1 <= n2 else n2
+
+        # Minimum number of batches.
+        if num_batches == 0:
+            num_batches = 1
+
+        avg_f_loss = 0.0; avg_b_loss = 0.0;
+        for i in range(0, num_batches):
+            s = i * bs
+            e = (i + 1) * bs
+            x, y = A[s : e], B[s : e]
+
+            # Forward optimization.
+            # Zero Grad.
+            self.map_optimizer.zero_grad()
+
+            # Predictions.
+            f_preds = self.mapping(self.mapping(x), fdir=False)
+            f_loss = F.mse_loss(f_preds, x)
+
+            # Predictions.
+            b_preds = self.mapping(self.mapping(y, fdir=False))
+            b_loss = F.mse_loss(b_preds, y)
+
+            loss = f_loss + b_loss
+            loss.backward()
+            self.map_optimizer.step()
+            clip_parameters(self.mapping, self.params.map_clip_weights)
+
+            # optimizer.
+            # f_loss.backward()
+            # self.map_optimizer.step()
+            # clip_parameters(self.mapping, self.params.map_clip_weights)
+            avg_f_loss += f_loss.cpu()
+
+            # Backward optimization.
+            # Zero Grad.
+            # self.map_optimizer.zero_grad()
+
+
+            # optimizer.
+            # b_loss.backward()
+            # self.map_optimizer.step()
+            # clip_parameters(self.mapping, self.params.map_clip_weights)
+            avg_b_loss += b_loss.cpu()
+
+            # Collect loss information.
+            stats['MSE_COSTS'].append(f_loss.data.item())
+
+        self.mapping.eval()
+        return avg_f_loss / num_batches, avg_b_loss / num_batches, num_batches
+
 
     def orthogonalize(self):
         """
@@ -242,6 +329,17 @@ class Trainer(object):
             W = self.mapping.weight.data
             beta = self.params.map_beta
             W.copy_((1 + beta) * W - beta * W.mm(W.transpose(0, 1).mm(W)))
+
+    def orthogonalize_bdma(self):
+        """
+        Orthogonalize the BDMA mapping.
+        """
+
+        if self.params.map_beta > 0:
+            beta = self.params.map_beta
+            for weight in self.mapping.module.all_weights:
+                W = weight.data
+                W.copy_((1 + beta) * W - beta * W.mm(W.transpose(0, 1).mm(W)))
 
     def update_lr(self, to_log, metric):
         """

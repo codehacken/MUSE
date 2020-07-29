@@ -29,10 +29,13 @@ JOB_TYPE=$6
 SEED=$7
 ITERATE=$8
 VOCAB_SIZE=$9
+DICO_TRAIN=${10:-"default"}
 
 # Pre-defined.
-N_HID_DIM=1024
+N_HID_DIM=4096
 MAX_VOCAB=200000 # Original is 400000
+NUM_EPOCHS=25
+MAX_CLIP_WEIGHTS=0
 
 # Verification...
 echo "Alignment Languages: Source: $SRC_LANG Target: $TGT_LANG"
@@ -43,13 +46,13 @@ echo "Hyperparameters: Seed: $SEED"
 
 # Once Manifold Alignment is complete.
 echo "Model training..."
-NAME="${SRC_LANG}_${TGT_LANG}_${NUM_LAYERS}_${JOB_TYPE}"
+NAME="${SRC_LANG}_${TGT_LANG}_${NUM_LAYERS}_${VOCAB_SIZE}_${JOB_TYPE}"
 if [[ ( "$JOB_TYPE" == "baseline" ) ]]
 then
     echo "Training baseline model..."
     python bdma_sup.py --src_lang $SRC_LANG --tgt_lang $TGT_LANG \
-                       --src_emb $SRC_EMB --tgt_emb $TGT_EMB --n_refinement 20 --vocab_size $VOCAB_SIZE\
-                       --dico_train default --n_layers $NUM_LAYERS --n_hid_dim $N_HID_DIM \
+                       --src_emb $SRC_EMB --tgt_emb $TGT_EMB --n_refinement $NUM_EPOCHS --vocab_size $VOCAB_SIZE\
+                       --dico_train $DICO_TRAIN --n_layers $NUM_LAYERS --n_hid_dim $N_HID_DIM --map_clip_weights $MAX_CLIP_WEIGHTS \
                        --batch_size 128 --seed $SEED --export pth --shared True --iterative $ITERATE \
                        --exp_id ${NAME} 2> data/results/${NAME}.results
 fi
@@ -57,9 +60,9 @@ fi
 if [[ ( "$JOB_TYPE" == "bdma" ) ]]
 then
     echo "Training BDMA model..."
-    python bdma_sup.py --src_lang $SRC_LANG --tgt_lang $TGT_LANG \
-                       --src_emb $SRC_EMB --tgt_emb $TGT_EMB --n_refinement 20 --vocab_size $VOCAB_SIZE \
-                       --dico_train default --n_layers $NUM_LAYERS --n_hid_dim $N_HID_DIM --iterative $ITERATE \
+    python bdma_sup.py --src_lang $SRC_LANG --tgt_lang $TGT_LANG --map_clip_weights $MAX_CLIP_WEIGHTS \
+                       --src_emb $SRC_EMB --tgt_emb $TGT_EMB --n_refinement $NUM_EPOCHS --vocab_size $VOCAB_SIZE \
+                       --dico_train $DICO_TRAIN --n_layers $NUM_LAYERS --n_hid_dim $N_HID_DIM --iterative $ITERATE \
                        --batch_size 128 --seed $SEED --export pth --bidirectional True --shared False \
                        --exp_id ${NAME} 2> data/results/${NAME}.results
 fi
@@ -67,9 +70,9 @@ fi
 if [[ ( "$JOB_TYPE" == "bdma-shared" ) ]]
 then
     echo "Training BDMA shared model..."
-    python bdma_sup.py --src_lang $SRC_LANG --tgt_lang $TGT_LANG --vocab_size $VOCAB_SIZE \
-                       --src_emb $SRC_EMB --tgt_emb $TGT_EMB --n_refinement 20 \
-                       --dico_train default --n_layers $NUM_LAYERS --n_hid_dim $N_HID_DIM --iterative $ITERATE \
+    python bdma_sup.py --src_lang $SRC_LANG --tgt_lang $TGT_LANG --vocab_size $VOCAB_SIZE  --map_clip_weights $MAX_CLIP_WEIGHTS \
+                       --src_emb $SRC_EMB --tgt_emb $TGT_EMB --n_refinement $NUM_EPOCHS \
+                       --dico_train $DICO_TRAIN --n_layers $NUM_LAYERS --n_hid_dim $N_HID_DIM --iterative $ITERATE \
                        --batch_size 128 --seed $SEED --export pth --bidirectional True --shared True \
                        --exp_id ${NAME} 2> data/results/${NAME}.results
 fi

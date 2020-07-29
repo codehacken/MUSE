@@ -121,6 +121,7 @@ class BiFNN(nn.Module):
         self.n_input_dropout = params.n_input_dropout
         self.bidirectional = params.bidirectional
         self.shared_params = params.shared
+        self.all_weights = []
 
         # NOTE: The output dim needs to be changed to the size of the output embedding.
         layers = []
@@ -136,6 +137,10 @@ class BiFNN(nn.Module):
                 weights = nn.Parameter(layers[-1].weight.data)
                 layers[-1].weight.data = weights.clone()
                 reverse[0].weight.data = layers[-1].weight.data.t()
+                self.all_weights.append(layers[-1].weight)
+            else:
+                self.all_weights.append(layers[-1].weight)
+                self.all_weights.append(reverse[0].weight)
 
             if i < self.n_layers:
                 layers.append(nn.LeakyReLU(0.1))

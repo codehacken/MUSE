@@ -22,9 +22,8 @@ from src.evaluation import Evaluator
 VALIDATION_METRIC_SUP = 'precision_at_1-csls_knn_10'
 VALIDATION_METRIC_UNSUP = 'mean_cosine-csls_knn_10-S2T-10000'
 
-
 # main
-parser = argparse.ArgumentParser(description='Supervised training')
+parser = argparse.ArgumentParser(description='Bidirectional training')
 parser.add_argument("--seed", type=int, default=0, help="Initialization seed")
 parser.add_argument("--verbose", type=int, default=2, help="Verbose level (2:debug, 1:info, 0:warning)")
 parser.add_argument("--exp_path", type=str, default="", help="Where to store experiment logs and models")
@@ -35,7 +34,9 @@ parser.add_argument("--iterative", type=bool_flag, default=False, help="Iterativ
 parser.add_argument("--bidirectional", type=bool_flag, default=False, help="Bidirectional Manifold Alignment.")
 parser.add_argument("--shared", type=bool_flag, default=True, help="Shared reverse parameters.")
 parser.add_argument("--vocab_size", type=int, default=0, help="Size of Vocabulary for training.")
+parser.add_argument("--descending", type=bool_flag, default=True, help="Run on GPU")
 parser.add_argument("--export", type=str, default="txt", help="Export embeddings after training (txt / pth)")
+parser.add_argument("--map_beta", type=float, default=0.001, help="Beta for orthogonalization")
 
 # Data
 parser.add_argument("--src_lang", type=str, default='en', help="Source language")
@@ -83,7 +84,7 @@ params = parser.parse_args()
 
 # check parameters
 assert not params.cuda or torch.cuda.is_available()
-assert params.dico_train in ["identical_char", "default"] or os.path.isfile(params.dico_train)
+assert params.dico_train in ["identical_char", "default", "combined"] or os.path.isfile(params.dico_train)
 assert params.dico_build in ["S2T", "T2S", "S2T|T2S", "S2T&T2S"]
 assert params.dico_max_size == 0 or params.dico_max_size < params.dico_max_rank
 assert params.dico_max_size == 0 or params.dico_max_size > params.dico_min_size
@@ -113,9 +114,10 @@ evaluator = Evaluator(trainer)
 
 # load a training dictionary. if a dictionary path is not provided, use a default
 # one ("default") or create one based on identical character strings ("identical_char")
-trainer.load_training_dico(params.dico_train, size=params.vocab_size)
+trainer.load_training_dico(params.dico_train, size=params.vocab_size,
+                           descending=params.descending)
 
-# define the validation metric
+# define the validation metric.
 VALIDATION_METRIC = VALIDATION_METRIC_UNSUP if params.dico_train == 'identical_char' else VALIDATION_METRIC_SUP
 logger.info("Validation metric: %s" % VALIDATION_METRIC)
 
@@ -140,7 +142,6 @@ for n_iter in range(params.n_refinement + 1):
             trainer.build_dictionary()
 
     # Standard MSE loss network.
-    # for _ in range(params.n_steps):
     f_loss, b_loss, n = trainer.bdma_step(stats)
     logger.info('Average F loss: {}, Average B loss: {}, Num Batches: {}'.format(f_loss, b_loss, n))
 
@@ -152,6 +153,12 @@ for n_iter in range(params.n_refinement + 1):
     logger.info("__log__:%s" % json.dumps(to_log))
     trainer.save_best_bdma(to_log, VALIDATION_METRIC)
     logger.info('End of iteration %i.\n\n' % n_iter)
+
+    # update the learning rate (stop if too small)
+    trainer.update_lr(to_log, VALIDATION_METRIC)
+    if trainer.map_optimizer.param_groups[0]['lr'] < params.min_lr:
+        logger.info('Learning rate < 1e-6. BREAK.')
+        break
 
 
 # export embeddings

@@ -15,7 +15,7 @@ from ..utils import get_nn_avg_dist
 
 
 DIC_EVAL_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', 'data', 'crosslingual', 'dictionaries')
-
+COM_DIC_EVAL_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', 'data', 'crosslingual', 'combined_dictionaries')
 
 logger = getLogger()
 
@@ -41,7 +41,7 @@ def load_identical_char_dico(word2id1, word2id2):
     return dico
 
 
-def load_dictionary(path, word2id1, word2id2, size=0):
+def load_dictionary(path, word2id1, word2id2, size=0, descending=True):
     """
     Return a torch tensor of size (n, 2) where n is the size of the
     loader dictionary, and sort it by source word frequency.
@@ -54,7 +54,6 @@ def load_dictionary(path, word2id1, word2id2, size=0):
     not_found2 = 0
 
     with io.open(path, 'r', encoding='utf-8') as f:
-        cnt = 0
         for index, line in enumerate(f):
             assert line == line.lower()
             parts = line.rstrip().split()
@@ -64,9 +63,6 @@ def load_dictionary(path, word2id1, word2id2, size=0):
             word1, word2 = parts
             if word1 in word2id1 and word2 in word2id2:
                 pairs.append((word1, word2))
-                if size > 0 and cnt >= size: # Select limited size dictionary.
-                    break
-                cnt += 1
             else:
                 not_found += 1
                 not_found1 += int(word1 not in word2id1)
@@ -79,12 +75,24 @@ def load_dictionary(path, word2id1, word2id2, size=0):
                    not_found, not_found1, not_found2))
 
     # sort the dictionary by source word frequencies
-    pairs = sorted(pairs, key=lambda x: word2id1[x[0]])
-    dico = torch.LongTensor(len(pairs), 2)
+    if size > 0:
+        pairs = sorted(pairs, key=lambda x: word2id1[x[0]], reverse=descending)
+    else:
+        pairs = sorted(pairs, key=lambda x: word2id1[x[0]])
+
+    if size > 0:
+        dico = torch.LongTensor(size, 2)
+    else:
+        dico = torch.LongTensor(len(pairs), 2)
+
     for i, (word1, word2) in enumerate(pairs):
+        if size > 0 and i >= size:
+            break
+
         dico[i, 0] = word2id1[word1]
         dico[i, 1] = word2id2[word2]
 
+    logger.info("Final Dictionary Size: %i" % (dico.shape[0]))
     return dico
 
 
