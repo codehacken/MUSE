@@ -60,13 +60,13 @@ params = parser.parse_args()
 
 # check parameters
 assert not params.cuda or torch.cuda.is_available()
-assert params.dico_train in ["identical_char", "default"] or os.path.isfile(params.dico_train)
+assert params.dico_train in ["identical_char", "default", "combined"] or os.path.isfile(params.dico_train)
 assert params.dico_build in ["S2T", "T2S", "S2T|T2S", "S2T&T2S"]
 assert params.dico_max_size == 0 or params.dico_max_size < params.dico_max_rank
 assert params.dico_max_size == 0 or params.dico_max_size > params.dico_min_size
 assert os.path.isfile(params.src_emb)
 assert os.path.isfile(params.tgt_emb)
-assert params.dico_eval == 'default' or os.path.isfile(params.dico_eval)
+assert params.dico_eval == 'default' or params.dico_eval == 'combined' or os.path.isfile(params.dico_eval)
 assert params.export in ["", "txt", "pth"]
 
 # Torch random values.

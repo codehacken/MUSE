@@ -32,7 +32,8 @@ VOCAB_SIZE=$9
 DICO_TRAIN=${10:-"default"}
 
 # Pre-defined.
-N_HID_DIM=4096
+N_HID_DIM=2048
+# N_HID_DIM=4096
 MAX_VOCAB=200000 # Original is 400000
 NUM_EPOCHS=25
 MAX_CLIP_WEIGHTS=0
@@ -47,6 +48,9 @@ echo "Hyperparameters: Seed: $SEED"
 # Once Manifold Alignment is complete.
 echo "Model training..."
 NAME="${SRC_LANG}_${TGT_LANG}_${NUM_LAYERS}_${VOCAB_SIZE}_${JOB_TYPE}"
+EXP_PATH=/scratch/$SLURM_JOB_ID
+EMB_LOC=/scratch/$SLURM_JOB_ID/debug/${NAME}
+
 if [[ ( "$JOB_TYPE" == "baseline" ) ]]
 then
     echo "Training baseline model..."
@@ -54,7 +58,7 @@ then
                        --src_emb $SRC_EMB --tgt_emb $TGT_EMB --n_refinement $NUM_EPOCHS --vocab_size $VOCAB_SIZE\
                        --dico_train $DICO_TRAIN --n_layers $NUM_LAYERS --n_hid_dim $N_HID_DIM --map_clip_weights $MAX_CLIP_WEIGHTS \
                        --batch_size 128 --seed $SEED --export pth --shared True --iterative $ITERATE \
-                       --exp_id ${NAME} 2> data/results/${NAME}.results
+                       --exp_id ${NAME} --exp_path ${EXP_PATH} --dico_eval combined  2> data/results/${NAME}.results
 fi
 
 if [[ ( "$JOB_TYPE" == "bdma" ) ]]
@@ -64,7 +68,7 @@ then
                        --src_emb $SRC_EMB --tgt_emb $TGT_EMB --n_refinement $NUM_EPOCHS --vocab_size $VOCAB_SIZE \
                        --dico_train $DICO_TRAIN --n_layers $NUM_LAYERS --n_hid_dim $N_HID_DIM --iterative $ITERATE \
                        --batch_size 128 --seed $SEED --export pth --bidirectional True --shared False \
-                       --exp_id ${NAME} 2> data/results/${NAME}.results
+                       --exp_id ${NAME} --exp_path ${EXP_PATH} --dico_eval combined  2> data/results/${NAME}.results
 fi
 
 if [[ ( "$JOB_TYPE" == "bdma-shared" ) ]]
@@ -74,19 +78,19 @@ then
                        --src_emb $SRC_EMB --tgt_emb $TGT_EMB --n_refinement $NUM_EPOCHS \
                        --dico_train $DICO_TRAIN --n_layers $NUM_LAYERS --n_hid_dim $N_HID_DIM --iterative $ITERATE \
                        --batch_size 128 --seed $SEED --export pth --bidirectional True --shared True \
-                       --exp_id ${NAME} 2> data/results/${NAME}.results
+                       --exp_id ${NAME} --exp_path ${EXP_PATH} --dico_eval combined  2> data/results/${NAME}.results
 fi
 echo "Training Completed... Starting Evaluation..."
 
 # Evaluate.
 python evaluate.py --src_lang $SRC_LANG --tgt_lang $TGT_LANG \
-                   --src_emb dumped/debug/${NAME}/vectors-${SRC_LANG}-f.pth \
-                   --tgt_emb dumped/debug/${NAME}/vectors-${TGT_LANG}-f.pth \
+                   --src_emb ${EMB_LOC}/vectors-${SRC_LANG}-f.pth \
+                   --tgt_emb ${EMB_LOC}/vectors-${TGT_LANG}-f.pth \
                    --max_vocab $MAX_VOCAB --exp_id eval_${NAME}_f --cuda True \
-                   2> data/results/eval_${NAME}_f.results
+                   --exp_path ${EXP_PATH} --dico_eval combined 2> data/results/eval_${NAME}_f.results
 
 python evaluate.py --src_lang $TGT_LANG --tgt_lang $SRC_LANG \
-                   --tgt_emb dumped/debug/${NAME}/vectors-${SRC_LANG}-b.pth \
-                   --src_emb dumped/debug/${NAME}/vectors-${TGT_LANG}-b.pth \
+                   --tgt_emb ${EMB_LOC}/vectors-${SRC_LANG}-b.pth \
+                   --src_emb ${EMB_LOC}/vectors-${TGT_LANG}-b.pth \
                    --max_vocab $MAX_VOCAB --exp_id eval_${NAME}_b --cuda True \
-                   2> data/results/eval_${NAME}_b.results
+                   --exp_path ${EXP_PATH} --dico_eval combined 2> data/results/eval_${NAME}_b.results

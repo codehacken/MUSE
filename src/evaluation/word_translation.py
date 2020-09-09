@@ -103,6 +103,8 @@ def get_word_translation_accuracy(lang1, word2id1, emb1, lang2, word2id2, emb2, 
     """
     if dico_eval == 'default':
         path = os.path.join(DIC_EVAL_PATH, '%s-%s.5000-6500.txt' % (lang1, lang2))
+    elif dico_eval == 'combined':
+        path = os.path.join(COM_DIC_EVAL_PATH, '%s-%s.5000-6500.txt' % (lang1, lang2))
     else:
         path = dico_eval
     dico = load_dictionary(path, word2id1, word2id2)

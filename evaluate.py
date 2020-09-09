@@ -39,10 +39,11 @@ parser.add_argument("--normalize_embeddings", type=str, default="", help="Normal
 params = parser.parse_args()
 
 # check parameters
+print(params.src_emb)
 assert params.src_lang, "source language undefined"
 assert os.path.isfile(params.src_emb)
 assert not params.tgt_lang or os.path.isfile(params.tgt_emb)
-assert params.dico_eval == 'default' or os.path.isfile(params.dico_eval)
+assert params.dico_eval == 'default' or params.dico_eval == 'combined' or os.path.isfile(params.dico_eval)
 
 # build logger / model / trainer / evaluator
 logger = initialize_exp(params)
@@ -58,4 +59,4 @@ if params.tgt_lang:
     evaluator.crosslingual_wordsim(to_log)
     evaluator.word_translation(to_log)
     evaluator.sent_translation(to_log)
-    # evaluator.dist_mean_cosine(to_log)
+    evaluator.dist_mean_cosine(to_log)

@@ -2,10 +2,10 @@
 # set -vx
 
 # Run all experiments related to BiFNN for word alignment.
-SEED=0
+SEED=100
 input=$1
 ITERATE=${2:-"False"}
-DICO_TRAIN=${3:-"default"}
+DICO_TRAIN=${3:-"combined"} # Change from "default"
 MEM=40000
 
 # Start processing.

@@ -9,9 +9,11 @@ import argparse
 
 from src.evaluation.word_translation import DIC_EVAL_PATH, COM_DIC_EVAL_PATH
 
-def build_dictionary(lang1, lang2, filename, pairs=[], reverse=False):
+def build_dictionary(lang1, lang2, filename, pairs=[], reverse=False,
+                     check_pairs=[]):
     path = os.path.join(DIC_EVAL_PATH, filename)
     assert os.path.isfile(path)
+    print(path)
     with io.open(path, 'r', encoding='utf-8') as f:
         for index, line in enumerate(f):
             assert line == line.lower()
@@ -24,7 +26,7 @@ def build_dictionary(lang1, lang2, filename, pairs=[], reverse=False):
             else:
                 word1, word2 = parts
 
-            if (word1, word2) not in pairs:
+            if ((word1, word2) not in pairs) and ((word1, word2) not in check_pairs):
                 pairs.append((word1, word2))
 
     return pairs
@@ -52,20 +54,21 @@ if __name__ == "__main__":
 
     # Training Files.
     filename_f = '%s-%s.0-5000.txt' % (params.lang1, params.lang2)
-    pairs = build_dictionary(lang1, lang2, filename_f)
+    tr_pairs = build_dictionary(lang1, lang2, filename_f)
 
     filename_b = '%s-%s.0-5000.txt' % (params.lang2, params.lang1)
-    pairs = build_dictionary(lang1, lang2, filename_b, pairs=pairs, reverse=True)
+    tr_pairs = build_dictionary(lang1, lang2, filename_b, pairs=tr_pairs, reverse=True)
 
-    write_pairs(filename_f, pairs)
-    write_pairs(filename_b, pairs, reverse=True)
+    write_pairs(filename_f, tr_pairs)
+    write_pairs(filename_b, tr_pairs, reverse=True)
 
     # Testing Files.
     filename_f = '%s-%s.5000-6500.txt' % (params.lang1, params.lang2)
-    pairs = build_dictionary(lang1, lang2, filename_f)
+    te_pairs = build_dictionary(lang1, lang2, filename_f, pairs=[], check_pairs=tr_pairs)
 
     filename_b = '%s-%s.5000-6500.txt' % (params.lang2, params.lang1)
-    pairs = build_dictionary(lang1, lang2, filename_b, pairs=pairs, reverse=True)
+    te_pairs = build_dictionary(lang1, lang2, filename_b, pairs=te_pairs,
+                                reverse=True, check_pairs=tr_pairs)
 
-    write_pairs(filename_f, pairs)
-    write_pairs(filename_b, pairs, reverse=True)
+    write_pairs(filename_f, te_pairs)
+    write_pairs(filename_b, te_pairs, reverse=True)

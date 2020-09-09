@@ -5,6 +5,11 @@
 # LICENSE file in the root directory of this source tree.
 #
 
+"""
+Important notes:
+https://github.com/facebookresearch/MUSE/issues/135
+"""
+
 import os
 from logging import getLogger
 import numpy as np

@@ -10,9 +10,14 @@ echo "Number of Running jobs: `squeue | grep $USERNAME | wc -l`"
 echo " "
 
 # Check for errors.
-echo "Number of Errors: `grep -sir "error" output/ | wc -l`"
+echo "Number of Job Errors: `grep -sir "error" output/ | wc -l`"
 echo "List of errors found..."
 grep -sir "error" output/
+
+# Check for errors.
+echo "Number of Result (Evaluation) Errors: `grep -sir "error" output/ | wc -l`"
+echo "List of errors found..."
+grep -sir "error" data/results/*.results
 
 # Check disk usage.
 echo "Total disk space left..."

@@ -36,7 +36,8 @@ parser.add_argument("--shared", type=bool_flag, default=True, help="Shared rever
 parser.add_argument("--vocab_size", type=int, default=0, help="Size of Vocabulary for training.")
 parser.add_argument("--descending", type=bool_flag, default=True, help="Run on GPU")
 parser.add_argument("--export", type=str, default="txt", help="Export embeddings after training (txt / pth)")
-parser.add_argument("--map_beta", type=float, default=0.001, help="Beta for orthogonalization")
+parser.add_argument("--map_beta", type=float, default=0.01, help="Beta for orthogonalization")
+
 
 # Data
 parser.add_argument("--src_lang", type=str, default='en', help="Source language")
@@ -46,7 +47,7 @@ parser.add_argument("--max_vocab", type=int, default=200000, help="Maximum vocab
 
 # BDMA Network
 parser.add_argument("--n_layers", type=int, default=0, help="BDMA layers")
-parser.add_argument("--n_hid_dim", type=int, default=1024, help="BDMA hidden layer dimensions")
+parser.add_argument("--n_hid_dim", type=int, default=900, help="BDMA hidden layer dimensions")
 parser.add_argument("--n_dropout", type=float, default=0., help="BDMA dropout")
 parser.add_argument("--n_input_dropout", type=float, default=0.1, help="BDMA input dropout")
 parser.add_argument("--n_steps", type=int, default=5, help="BDMA steps")
@@ -54,7 +55,7 @@ parser.add_argument("--n_lambda", type=float, default=1, help="BDMA loss feedbac
 parser.add_argument("--n_smooth", type=float, default=0.1, help="BDMA smooth predictions")
 parser.add_argument("--map_clip_weights", type=float, default=0, help="Clip discriminator weights (0 to disable)")
 
-# Training refinement
+# Training refinement.
 parser.add_argument("--n_refinement", type=int, default=10, help="Number of refinement iterations (0 to disable the refinement procedure)")
 parser.add_argument("--n_epochs", type=int, default=5, help="Number of epochs")
 parser.add_argument("--epoch_size", type=int, default=1000000, help="Iterations per epoch")
@@ -90,7 +91,7 @@ assert params.dico_max_size == 0 or params.dico_max_size < params.dico_max_rank
 assert params.dico_max_size == 0 or params.dico_max_size > params.dico_min_size
 assert os.path.isfile(params.src_emb)
 assert os.path.isfile(params.tgt_emb)
-assert params.dico_eval == 'default' or os.path.isfile(params.dico_eval)
+assert params.dico_eval == 'default' or params.dico_eval == 'combined' or os.path.isfile(params.dico_eval)
 assert params.export in ["", "txt", "pth"]
 
 # Check BDMA Parameters.
