@@ -1,2 +1,1 @@
-en es data/word_vectors/en/wiki.en.bin data/word_vectors/es/wiki.es.bin 1 0
-es en data/word_vectors/es/wiki.es.bin data/word_vectors/en/wiki.en.bin 1 0
+en es data/word_vectors/en/wiki.en.bin data/word_vectors/es/wiki.es.bin 0 0

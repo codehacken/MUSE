@@ -118,4 +118,4 @@ for n_iter in range(params.n_refinement + 1):
 # export embeddings
 if params.export:
     trainer.reload_best()
-    trainer.export()
+    trainer.export(bdma_model=False)

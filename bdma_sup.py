@@ -36,7 +36,7 @@ parser.add_argument("--shared", type=bool_flag, default=True, help="Shared rever
 parser.add_argument("--vocab_size", type=int, default=0, help="Size of Vocabulary for training.")
 parser.add_argument("--descending", type=bool_flag, default=True, help="Run on GPU")
 parser.add_argument("--export", type=str, default="txt", help="Export embeddings after training (txt / pth)")
-parser.add_argument("--map_beta", type=float, default=0.01, help="Beta for orthogonalization")
+parser.add_argument("--map_beta", type=float, default=0.001, help="Beta for orthogonalization")
 
 
 # Data
@@ -47,8 +47,9 @@ parser.add_argument("--max_vocab", type=int, default=200000, help="Maximum vocab
 
 # BDMA Network
 parser.add_argument("--n_layers", type=int, default=0, help="BDMA layers")
-parser.add_argument("--n_hid_dim", type=int, default=900, help="BDMA hidden layer dimensions")
+parser.add_argument("--n_hid_dim", type=int, default=1024, help="BDMA hidden layer dimensions")
 parser.add_argument("--n_dropout", type=float, default=0., help="BDMA dropout")
+parser.add_argument("--n_rev_beta", type=float, default=0, help="BDMA Reverse Loss Learning Rate")
 parser.add_argument("--n_input_dropout", type=float, default=0.1, help="BDMA input dropout")
 parser.add_argument("--n_steps", type=int, default=5, help="BDMA steps")
 parser.add_argument("--n_lambda", type=float, default=1, help="BDMA loss feedback coefficient")

@@ -2,7 +2,7 @@
 # set -vx
 
 # Run all experiments related to BiFNN for word alignment.
-SEED=100
+SEED=0
 input=$1
 ITERATE=${2:-"False"}
 DICO_TRAIN=${3:-"combined"} # Change from "default"

@@ -23,7 +23,7 @@ from .utils import get_optimizer, load_embeddings, normalize_embeddings, export_
 from .utils import clip_parameters
 from .dico_builder import build_dictionary
 from .evaluation.word_translation import DIC_EVAL_PATH, load_identical_char_dico, load_dictionary, COM_DIC_EVAL_PATH
-
+from .rcsls_loss import RCSLS
 
 logger = getLogger()
 
@@ -41,6 +41,7 @@ class Trainer(object):
         self.mapping = mapping
         self.discriminator = discriminator
         self.params = params
+        self.criterionRCSLS = RCSLS()
 
         # optimizers
         if hasattr(params, 'map_optimizer'):
@@ -192,6 +193,39 @@ class Trainer(object):
         U, S, V_t = scipy.linalg.svd(M, full_matrices=True)
         W.copy_(torch.from_numpy(U.dot(V_t)).type_as(W))
 
+
+    def get_xy(self, volatile=True):
+        """
+        Get transofrmation input batch / output target.
+        Using RCSLS Loss implementation from:
+        https://github.com/YovaKem/RCSLS/blob/master/src/trainer.py
+        """
+        # select random word IDs
+        bs = self.params.batch_size
+        ids = torch.LongTensor(bs).random_(len(self.dico))
+        if self.params.cuda:
+            ids = ids.cuda()
+
+        # get word embeddings
+        with torch.no_grad():
+
+            dico_src_emb = self.src_emb(self.dico[:,0])
+            dico_tgt_emb = self.tgt_emb(self.dico[:,1])
+
+            src_emb = dico_src_emb[ids]
+            tgt_emb = dico_tgt_emb[ids]
+
+            src_emb = Variable(src_emb.data)
+            tgt_emb = Variable(tgt_emb.data)
+
+            neg_src_emb = Variable(self.src_emb.weight)
+            neg_tgt_emb = Variable(self.tgt_emb.weight)
+
+        if self.params.cuda:
+            tgt_emb = tgt_emb.cuda()
+        return src_emb, tgt_emb, neg_src_emb, neg_tgt_emb
+        
+
     def bdma_step(self, stats):
         """
         Train the mapping.
@@ -236,7 +270,7 @@ class Trainer(object):
             if self.params.bidirectional:
                 self.map_optimizer.zero_grad()
                 b_preds = self.mapping(y, fdir=False)
-                b_loss = F.mse_loss(b_preds, x)
+                b_loss = self.params.n_rev_beta * F.mse_loss(b_preds, x)
 
                 b_loss.backward()
                 self.map_optimizer.step()
@@ -425,7 +459,7 @@ class Trainer(object):
         assert os.path.isfile(path)
         self.mapping.load_state_dict(torch.load(path))
 
-    def export(self):
+    def export(self, bdma_model=True):
         """
         Export embeddings.
         """
@@ -455,14 +489,15 @@ class Trainer(object):
         export_embeddings(fin_src_emb, tgt_emb, params)
 
         # map target embeddings to the source space
-        bs = 512
-        logger.info("Map target embeddings to the source space ...")
-        original = self.mapping.module.bidirectional
-        self.mapping.module.bidirectional = True
-        for i, k in enumerate(range(0, len(tgt_emb), bs)):
-            x = Variable(tgt_emb[k:k + bs], volatile=True)
-            fin_tgt_emb[k:k + bs] = self.mapping(x.cuda() if params.cuda else x, fdir=False).data.cpu()
-        self.mapping.module.bidirectional = original
+        if bdma_model:
+            bs = 512
+            logger.info("Map target embeddings to the source space ...")
+            original = self.mapping.module.bidirectional
+            self.mapping.module.bidirectional = True
+            for i, k in enumerate(range(0, len(tgt_emb), bs)):
+                x = Variable(tgt_emb[k:k + bs], volatile=True)
+                fin_tgt_emb[k:k + bs] = self.mapping(x.cuda() if params.cuda else x, fdir=False).data.cpu()
+            self.mapping.module.bidirectional = original
 
-        # write embeddings to the disk
-        export_embeddings(src_emb, fin_tgt_emb, params, direction="backward")
+            # write embeddings to the disk
+            export_embeddings(src_emb, fin_tgt_emb, params, direction="backward")

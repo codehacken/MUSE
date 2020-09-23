@@ -15,9 +15,14 @@ echo "List of errors found..."
 grep -sir "error" output/
 
 # Check for errors.
-echo "Number of Result (Evaluation) Errors: `grep -sir "error" output/ | wc -l`"
+echo "Number of Result (Evaluation) Errors: `grep -sir "error" data/results/*.results/ | wc -l`"
 echo "List of errors found..."
 grep -sir "error" data/results/*.results
+
+# Check for MUSE baseline errors.
+echo "Number of MUSE Baseline Result (Evaluation) Errors: `grep -sir "error" data/muse_baseline_results/*.results/ | wc -l`"
+echo "List of errors found..."
+grep -sir "error" data/muse_baseline_results/*.results
 
 # Check disk usage.
 echo "Total disk space left..."
