@@ -6,6 +6,7 @@ SEED=0
 input=$1
 ITERATE=${2:-"False"}
 DICO_TRAIN=${3:-"combined"} # Change from "default"
+LOSS=${4:-"False"}
 MEM=40000
 
 # Start processing.
@@ -22,12 +23,12 @@ do
 
     # Baseline alignment.
     sbatch --account=pi_ferraro --job-name=$SRC_LANG-$TGT_LANG-$NUM_LAYERS-$VOCAB_SIZE-b --mem=$MEM --qos=medium+ \
-           bidnn.slurm $SRC_LANG $TGT_LANG $SRC_EMB $TGT_EMB $NUM_LAYERS "baseline" $SEED $ITERATE $VOCAB_SIZE $DICO_TRAIN
+           bidnn.slurm $SRC_LANG $TGT_LANG $SRC_EMB $TGT_EMB $NUM_LAYERS "baseline" $SEED $ITERATE $VOCAB_SIZE $DICO_TRAIN $LOSS
 
     sbatch --account=pi_ferraro --job-name=$SRC_LANG-$TGT_LANG-$NUM_LAYERS-$VOCAB_SIZE-bdma --mem=$MEM --qos=medium+ \
-           bidnn.slurm $SRC_LANG $TGT_LANG $SRC_EMB $TGT_EMB $NUM_LAYERS "bdma" $SEED $ITERATE $VOCAB_SIZE $DICO_TRAIN
+           bidnn.slurm $SRC_LANG $TGT_LANG $SRC_EMB $TGT_EMB $NUM_LAYERS "bdma" $SEED $ITERATE $VOCAB_SIZE $DICO_TRAIN $LOSS
 
     sbatch --account=pi_ferraro --job-name=$SRC_LANG-$TGT_LANG-$NUM_LAYERS-$VOCAB_SIZE-bdsh --mem=$MEM --qos=medium+ \
-           bidnn.slurm $SRC_LANG $TGT_LANG $SRC_EMB $TGT_EMB $NUM_LAYERS "bdma-shared" $SEED $ITERATE $VOCAB_SIZE $DICO_TRAIN
+           bidnn.slurm $SRC_LANG $TGT_LANG $SRC_EMB $TGT_EMB $NUM_LAYERS "bdma-shared" $SEED $ITERATE $VOCAB_SIZE $DICO_TRAIN $LOSS
 
 done < "$input"

@@ -41,6 +41,8 @@ class Trainer(object):
         self.mapping = mapping
         self.discriminator = discriminator
         self.params = params
+
+        # RCSLS implementation.
         self.criterionRCSLS = RCSLS()
 
         # optimizers
@@ -194,39 +196,7 @@ class Trainer(object):
         W.copy_(torch.from_numpy(U.dot(V_t)).type_as(W))
 
 
-    def get_xy(self, volatile=True):
-        """
-        Get transofrmation input batch / output target.
-        Using RCSLS Loss implementation from:
-        https://github.com/YovaKem/RCSLS/blob/master/src/trainer.py
-        """
-        # select random word IDs
-        bs = self.params.batch_size
-        ids = torch.LongTensor(bs).random_(len(self.dico))
-        if self.params.cuda:
-            ids = ids.cuda()
-
-        # get word embeddings
-        with torch.no_grad():
-
-            dico_src_emb = self.src_emb(self.dico[:,0])
-            dico_tgt_emb = self.tgt_emb(self.dico[:,1])
-
-            src_emb = dico_src_emb[ids]
-            tgt_emb = dico_tgt_emb[ids]
-
-            src_emb = Variable(src_emb.data)
-            tgt_emb = Variable(tgt_emb.data)
-
-            neg_src_emb = Variable(self.src_emb.weight)
-            neg_tgt_emb = Variable(self.tgt_emb.weight)
-
-        if self.params.cuda:
-            tgt_emb = tgt_emb.cuda()
-        return src_emb, tgt_emb, neg_src_emb, neg_tgt_emb
-        
-
-    def bdma_step(self, stats):
+    def bdma_step(self, stats, use_rcsls=False):
         """
         Train the mapping.
         """
@@ -247,6 +217,9 @@ class Trainer(object):
         if num_batches == 0:
             num_batches = 1
 
+        if use_rcsls:
+            logger.info("Using RCSLS Loss...")
+
         avg_f_loss = 0.0; avg_b_loss = 0.0;
         for i in range(0, num_batches):
             s = i * bs
@@ -261,6 +234,12 @@ class Trainer(object):
             f_preds = self.mapping(x)
             f_loss = F.mse_loss(f_preds, y)
 
+            if use_rcsls:
+                # Negative Sampling.
+                neg_f_preds = self.mapping(A)
+                f_rcsls_loss = self.criterionRCSLS(x, f_preds, y, A, neg_f_preds, B)
+                f_loss += f_rcsls_loss
+
             # optimizer.
             f_loss.backward()
             self.map_optimizer.step()
@@ -271,6 +250,12 @@ class Trainer(object):
                 self.map_optimizer.zero_grad()
                 b_preds = self.mapping(y, fdir=False)
                 b_loss = self.params.n_rev_beta * F.mse_loss(b_preds, x)
+
+                if use_rcsls:
+                    # Negative Sampling.
+                    neg_b_preds = self.mapping(B, fdir=False)
+                    b_rcsls_loss = self.criterionRCSLS(y, b_preds, x, B, neg_b_preds, A)
+                    b_loss += b_rcsls_loss
 
                 b_loss.backward()
                 self.map_optimizer.step()

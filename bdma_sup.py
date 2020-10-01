@@ -35,6 +35,7 @@ parser.add_argument("--bidirectional", type=bool_flag, default=False, help="Bidi
 parser.add_argument("--shared", type=bool_flag, default=True, help="Shared reverse parameters.")
 parser.add_argument("--vocab_size", type=int, default=0, help="Size of Vocabulary for training.")
 parser.add_argument("--descending", type=bool_flag, default=True, help="Run on GPU")
+parser.add_argument("--rcsls", type=bool_flag, default=False, help="use RCSLS loss.")
 parser.add_argument("--export", type=str, default="txt", help="Export embeddings after training (txt / pth)")
 parser.add_argument("--map_beta", type=float, default=0.001, help="Beta for orthogonalization")
 
@@ -79,7 +80,7 @@ parser.add_argument("--dico_max_size", type=int, default=0, help="Maximum genera
 # Reload pre-trained embeddings
 parser.add_argument("--src_emb", type=str, default='', help="Reload source embeddings")
 parser.add_argument("--tgt_emb", type=str, default='', help="Reload target embeddings")
-parser.add_argument("--normalize_embeddings", type=str, default="", help="Normalize embeddings before training")
+parser.add_argument("--normalize_embeddings", type=str, default="renorm", help="Normalize embeddings before training")
 
 # parse parameters
 params = parser.parse_args()
@@ -144,7 +145,7 @@ for n_iter in range(params.n_refinement + 1):
             trainer.build_dictionary()
 
     # Standard MSE loss network.
-    f_loss, b_loss, n = trainer.bdma_step(stats)
+    f_loss, b_loss, n = trainer.bdma_step(stats, use_rcsls=params.rcsls)
     logger.info('Average F loss: {}, Average B loss: {}, Num Batches: {}'.format(f_loss, b_loss, n))
 
     # embeddings evaluation

@@ -30,18 +30,19 @@ SEED=$7
 ITERATE=$8
 VOCAB_SIZE=$9
 DICO_TRAIN=${10:-"default"}
+LOSS=${11:-"base"}
 
 # Pre-defined.
 N_HID_DIM=4096
 MAX_VOCAB=200000 # Original is 400000
-NUM_EPOCHS=25
+NUM_EPOCHS=40
 MAX_CLIP_WEIGHTS=0
 
 # Verification...
 echo "Alignment Languages: Source: $SRC_LANG Target: $TGT_LANG"
 echo "Embeddings: Source: $SRC_EMB Target: $TGT_EMB Maximum Vocab Size: $MAX_VOCAB"
 echo "Network Size: $NUM_LAYERS, Hidden Layer: $N_HID_DIM"
-echo "Job Type: $JOB_TYPE"
+echo "Job Type: $JOB_TYPE and Loss: $LOSS"
 echo "Hyperparameters: Seed: $SEED"
 
 # Once Manifold Alignment is complete.
@@ -56,7 +57,7 @@ then
     python bdma_sup.py --src_lang $SRC_LANG --tgt_lang $TGT_LANG \
                        --src_emb $SRC_EMB --tgt_emb $TGT_EMB --n_refinement $NUM_EPOCHS --vocab_size $VOCAB_SIZE\
                        --dico_train $DICO_TRAIN --n_layers $NUM_LAYERS --n_hid_dim $N_HID_DIM --map_clip_weights $MAX_CLIP_WEIGHTS \
-                       --batch_size 128 --seed $SEED --export pth --shared True --iterative $ITERATE \
+                       --batch_size 128 --seed $SEED --export pth --shared True --iterative $ITERATE --rcsls $LOSS \
                        --exp_id ${NAME} --exp_path ${EXP_PATH} --dico_eval combined  2> data/results/${NAME}.results
 fi
 
@@ -66,7 +67,7 @@ then
     python bdma_sup.py --src_lang $SRC_LANG --tgt_lang $TGT_LANG --map_clip_weights $MAX_CLIP_WEIGHTS \
                        --src_emb $SRC_EMB --tgt_emb $TGT_EMB --n_refinement $NUM_EPOCHS --vocab_size $VOCAB_SIZE \
                        --dico_train $DICO_TRAIN --n_layers $NUM_LAYERS --n_hid_dim $N_HID_DIM --iterative $ITERATE \
-                       --batch_size 128 --seed $SEED --export pth --bidirectional True --shared False \
+                       --batch_size 128 --seed $SEED --export pth --bidirectional True --shared False --rcsls $LOSS  \
                        --exp_id ${NAME} --exp_path ${EXP_PATH} --dico_eval combined  2> data/results/${NAME}.results
 fi
 
@@ -76,7 +77,7 @@ then
     python bdma_sup.py --src_lang $SRC_LANG --tgt_lang $TGT_LANG --vocab_size $VOCAB_SIZE  --map_clip_weights $MAX_CLIP_WEIGHTS \
                        --src_emb $SRC_EMB --tgt_emb $TGT_EMB --n_refinement $NUM_EPOCHS \
                        --dico_train $DICO_TRAIN --n_layers $NUM_LAYERS --n_hid_dim $N_HID_DIM --iterative $ITERATE \
-                       --batch_size 128 --seed $SEED --export pth --bidirectional True --shared True \
+                       --batch_size 128 --seed $SEED --export pth --bidirectional True --shared True --rcsls $LOSS  \
                        --exp_id ${NAME} --exp_path ${EXP_PATH} --dico_eval combined  2> data/results/${NAME}.results
 fi
 echo "Training Completed... Starting Evaluation..."

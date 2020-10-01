@@ -4,6 +4,7 @@ https://github.com/YovaKem/RCSLS/blob/master/src/rcsls_loss.py
 """
 
 import torch
+from torch import nn
 
 class RCSLS(nn.Module):
 
