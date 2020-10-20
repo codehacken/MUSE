@@ -2,17 +2,17 @@
 
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=8
-#SBATCH --gres=gpu:1
-#SBATCH --partition=gpu2018
 #SBATCH --output=output/slurm-%x.out
 #SBATCH --error=output/slurm-%x.err
 
-# This for large jobs. #SBATCH --gres=gpu:1
-# This for large jobs. #SBATCH --partition=gpu2018
+# Large Jobs
+#SBATCH --gres=gpu:1
+#SBATCH --partition=gpu2018
 
-# #SBATCH --gres=gpu:2
-# #SBATCH --partition=gpu
-
+# Small jobs.
+# SBATCH --gres=gpu:2
+# SBATCH --partition=gpu
+# SBATCH --exclude=gpunode[111-116]
 
 # Set the environment.
 source deactivate # Remove previous environments.
@@ -30,12 +30,12 @@ SEED=$7
 ITERATE=$8
 VOCAB_SIZE=$9
 DICO_TRAIN=${10:-"default"}
-LOSS=${11:-"base"}
+LOSS=${11:-"m"}
 
 # Pre-defined.
-N_HID_DIM=4096
+N_HID_DIM=2048
 MAX_VOCAB=200000 # Original is 400000
-NUM_EPOCHS=40
+NUM_EPOCHS=30
 MAX_CLIP_WEIGHTS=0
 
 # Verification...
@@ -47,7 +47,7 @@ echo "Hyperparameters: Seed: $SEED"
 
 # Once Manifold Alignment is complete.
 echo "Model training..."
-NAME="${SRC_LANG}_${TGT_LANG}_${NUM_LAYERS}_${VOCAB_SIZE}_${JOB_TYPE}"
+NAME="${SRC_LANG}_${TGT_LANG}_${NUM_LAYERS}_${VOCAB_SIZE}_${ITERATE}_${DICO_TRAIN}_${LOSS}_${JOB_TYPE}"
 EXP_PATH=/scratch/$SLURM_JOB_ID
 EMB_LOC=/scratch/$SLURM_JOB_ID/debug/${NAME}
 
@@ -57,7 +57,7 @@ then
     python bdma_sup.py --src_lang $SRC_LANG --tgt_lang $TGT_LANG \
                        --src_emb $SRC_EMB --tgt_emb $TGT_EMB --n_refinement $NUM_EPOCHS --vocab_size $VOCAB_SIZE\
                        --dico_train $DICO_TRAIN --n_layers $NUM_LAYERS --n_hid_dim $N_HID_DIM --map_clip_weights $MAX_CLIP_WEIGHTS \
-                       --batch_size 128 --seed $SEED --export pth --shared True --iterative $ITERATE --rcsls $LOSS \
+                       --batch_size 128 --seed $SEED --export pth --shared True --iterative $ITERATE --loss $LOSS \
                        --exp_id ${NAME} --exp_path ${EXP_PATH} --dico_eval combined  2> data/results/${NAME}.results
 fi
 
@@ -67,7 +67,7 @@ then
     python bdma_sup.py --src_lang $SRC_LANG --tgt_lang $TGT_LANG --map_clip_weights $MAX_CLIP_WEIGHTS \
                        --src_emb $SRC_EMB --tgt_emb $TGT_EMB --n_refinement $NUM_EPOCHS --vocab_size $VOCAB_SIZE \
                        --dico_train $DICO_TRAIN --n_layers $NUM_LAYERS --n_hid_dim $N_HID_DIM --iterative $ITERATE \
-                       --batch_size 128 --seed $SEED --export pth --bidirectional True --shared False --rcsls $LOSS  \
+                       --batch_size 128 --seed $SEED --export pth --bidirectional True --shared False --loss $LOSS  \
                        --exp_id ${NAME} --exp_path ${EXP_PATH} --dico_eval combined  2> data/results/${NAME}.results
 fi
 
@@ -77,7 +77,7 @@ then
     python bdma_sup.py --src_lang $SRC_LANG --tgt_lang $TGT_LANG --vocab_size $VOCAB_SIZE  --map_clip_weights $MAX_CLIP_WEIGHTS \
                        --src_emb $SRC_EMB --tgt_emb $TGT_EMB --n_refinement $NUM_EPOCHS \
                        --dico_train $DICO_TRAIN --n_layers $NUM_LAYERS --n_hid_dim $N_HID_DIM --iterative $ITERATE \
-                       --batch_size 128 --seed $SEED --export pth --bidirectional True --shared True --rcsls $LOSS  \
+                       --batch_size 128 --seed $SEED --export pth --bidirectional True --shared True --loss $LOSS  \
                        --exp_id ${NAME} --exp_path ${EXP_PATH} --dico_eval combined  2> data/results/${NAME}.results
 fi
 echo "Training Completed... Starting Evaluation..."
@@ -86,11 +86,11 @@ echo "Training Completed... Starting Evaluation..."
 python evaluate.py --src_lang $SRC_LANG --tgt_lang $TGT_LANG \
                    --src_emb ${EMB_LOC}/vectors-${SRC_LANG}-f.pth \
                    --tgt_emb ${EMB_LOC}/vectors-${TGT_LANG}-f.pth \
-                   --max_vocab $MAX_VOCAB --exp_id eval_${NAME}_f --cuda True \
+                   --max_vocab $MAX_VOCAB --exp_id eval_${NAME}_f --cuda True  --loss $LOSS \
                    --exp_path ${EXP_PATH} --dico_eval combined 2> data/results/eval_${NAME}_f.results
 
 python evaluate.py --src_lang $TGT_LANG --tgt_lang $SRC_LANG \
                    --tgt_emb ${EMB_LOC}/vectors-${SRC_LANG}-b.pth \
                    --src_emb ${EMB_LOC}/vectors-${TGT_LANG}-b.pth \
-                   --max_vocab $MAX_VOCAB --exp_id eval_${NAME}_b --cuda True \
+                   --max_vocab $MAX_VOCAB --exp_id eval_${NAME}_b --cuda True  --loss $LOSS \
                    --exp_path ${EXP_PATH} --dico_eval combined 2> data/results/eval_${NAME}_b.results

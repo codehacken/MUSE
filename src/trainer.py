@@ -43,9 +43,10 @@ class Trainer(object):
         self.params = params
 
         # RCSLS implementation.
-        self.criterionRCSLS = RCSLS()
+        if self.params.loss == "r" or self.params.loss == "mr":
+            self.criterionRCSLS = RCSLS()
 
-        # optimizers
+        # optimizers.
         if hasattr(params, 'map_optimizer'):
             optim_fn, optim_params = get_optimizer(params.map_optimizer)
             self.map_optimizer = optim_fn(mapping.parameters(), **optim_params)
@@ -195,8 +196,20 @@ class Trainer(object):
         U, S, V_t = scipy.linalg.svd(M, full_matrices=True)
         W.copy_(torch.from_numpy(U.dot(V_t)).type_as(W))
 
+    def bdma_procrustes(self):
+        """
+        Find the best orthogonal matrix mapping using the Orthogonal Procrustes problem
+        https://en.wikipedia.org/wiki/Orthogonal_Procrustes_problem
+        """
+        A = self.src_emb.weight.data[self.dico[:, 0]]
+        B = self.tgt_emb.weight.data[self.dico[:, 1]]
+        W = self.mapping.module.layers[0].weight.data
+        M = B.transpose(0, 1).mm(A).cpu().numpy()
+        U, S, V_t = scipy.linalg.svd(M, full_matrices=True)
+        W.copy_(torch.from_numpy(U.dot(V_t)).type_as(W))
 
-    def bdma_step(self, stats, use_rcsls=False):
+
+    def bdma_step(self, stats):
         """
         Train the mapping.
         """
@@ -205,6 +218,10 @@ class Trainer(object):
         # Create batches.
         A = self.src_emb.weight.data[self.dico[:, 0]]
         B = self.tgt_emb.weight.data[self.dico[:, 1]]
+
+        if self.params.loss == "r" or self.params.loss == "mr":
+            neg_src_emb = self.src_emb.weight.data
+            neg_tgt_emb = self.tgt_emb.weight.data
 
         # Shuffle.
         r = torch.randperm(A.shape[0])
@@ -217,7 +234,7 @@ class Trainer(object):
         if num_batches == 0:
             num_batches = 1
 
-        if use_rcsls:
+        if self.params.loss == "r" or self.params.loss == "mr":
             logger.info("Using RCSLS Loss...")
 
         avg_f_loss = 0.0; avg_b_loss = 0.0;
@@ -232,12 +249,15 @@ class Trainer(object):
 
             # Predictions.
             f_preds = self.mapping(x)
-            f_loss = F.mse_loss(f_preds, y)
+            if self.params.loss == "m" or self.params.loss == "mr":
+                f_loss = F.mse_loss(f_preds, y)
+            else:
+                f_loss = 0
 
-            if use_rcsls:
+            if self.params.loss == "r" or self.params.loss == "mr":
                 # Negative Sampling.
-                neg_f_preds = self.mapping(A)
-                f_rcsls_loss = self.criterionRCSLS(x, f_preds, y, A, neg_f_preds, B)
+                neg_src_emb_trans = self.mapping(neg_src_emb)
+                f_rcsls_loss = self.criterionRCSLS(x, f_preds, y, neg_src_emb, neg_src_emb_trans, neg_tgt_emb)
                 f_loss += f_rcsls_loss
 
             # optimizer.
@@ -249,13 +269,17 @@ class Trainer(object):
             if self.params.bidirectional:
                 self.map_optimizer.zero_grad()
                 b_preds = self.mapping(y, fdir=False)
-                b_loss = self.params.n_rev_beta * F.mse_loss(b_preds, x)
 
-                if use_rcsls:
+                if self.params.loss == "m" or self.params.loss == "mr":
+                    b_loss = self.params.n_rev_beta * F.mse_loss(b_preds, x)
+                else:
+                    b_loss = 0
+
+                if self.params.loss == "r" or self.params.loss == "mr":
                     # Negative Sampling.
-                    neg_b_preds = self.mapping(B, fdir=False)
-                    b_rcsls_loss = self.criterionRCSLS(y, b_preds, x, B, neg_b_preds, A)
-                    b_loss += b_rcsls_loss
+                    neg_tgt_emb_trans = self.mapping(neg_tgt_emb, fdir=False)
+                    b_rcsls_loss = self.criterionRCSLS(y, b_preds, x, neg_tgt_emb, neg_tgt_emb_trans, neg_src_emb)
+                    b_loss += self.params.n_rev_beta * b_rcsls_loss
 
                 b_loss.backward()
                 self.map_optimizer.step()

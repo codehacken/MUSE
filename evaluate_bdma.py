@@ -22,6 +22,7 @@ parser.add_argument("--verbose", type=int, default=2, help="Verbose level (2:deb
 parser.add_argument("--exp_path", type=str, default="", help="Where to store experiment logs and models")
 parser.add_argument("--exp_name", type=str, default="debug", help="Experiment name")
 parser.add_argument("--exp_id", type=str, default="", help="Experiment ID")
+parser.add_argument("--loss", choices=['m', 'r', 'mr'], default='m', help="Types of losses.")
 parser.add_argument("--cuda", type=bool_flag, default=True, help="Run on GPU")
 # data
 parser.add_argument("--src_lang", type=str, default="", help="Source language")

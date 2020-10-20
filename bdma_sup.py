@@ -35,10 +35,9 @@ parser.add_argument("--bidirectional", type=bool_flag, default=False, help="Bidi
 parser.add_argument("--shared", type=bool_flag, default=True, help="Shared reverse parameters.")
 parser.add_argument("--vocab_size", type=int, default=0, help="Size of Vocabulary for training.")
 parser.add_argument("--descending", type=bool_flag, default=True, help="Run on GPU")
-parser.add_argument("--rcsls", type=bool_flag, default=False, help="use RCSLS loss.")
+parser.add_argument("--loss", choices=['m', 'r', 'mr'], default='m', help="Types of losses.")
 parser.add_argument("--export", type=str, default="txt", help="Export embeddings after training (txt / pth)")
 parser.add_argument("--map_beta", type=float, default=0.001, help="Beta for orthogonalization")
-
 
 # Data
 parser.add_argument("--src_lang", type=str, default='en', help="Source language")
@@ -50,7 +49,7 @@ parser.add_argument("--max_vocab", type=int, default=200000, help="Maximum vocab
 parser.add_argument("--n_layers", type=int, default=0, help="BDMA layers")
 parser.add_argument("--n_hid_dim", type=int, default=1024, help="BDMA hidden layer dimensions")
 parser.add_argument("--n_dropout", type=float, default=0., help="BDMA dropout")
-parser.add_argument("--n_rev_beta", type=float, default=0, help="BDMA Reverse Loss Learning Rate")
+parser.add_argument("--n_rev_beta", type=float, default=1.0, help="BDMA Reverse Loss Learning Rate")
 parser.add_argument("--n_input_dropout", type=float, default=0.1, help="BDMA input dropout")
 parser.add_argument("--n_steps", type=int, default=5, help="BDMA steps")
 parser.add_argument("--n_lambda", type=float, default=1, help="BDMA loss feedback coefficient")
@@ -62,7 +61,7 @@ parser.add_argument("--n_refinement", type=int, default=10, help="Number of refi
 parser.add_argument("--n_epochs", type=int, default=5, help="Number of epochs")
 parser.add_argument("--epoch_size", type=int, default=1000000, help="Iterations per epoch")
 parser.add_argument("--batch_size", type=int, default=256, help="Batch size")
-parser.add_argument("--map_optimizer", type=str, default="adam,lr=0.001", help="Mapping optimizer")
+parser.add_argument("--map_optimizer", type=str, default="adam,lr=0.0005", help="Mapping optimizer")
 parser.add_argument("--lr_decay", type=float, default=0.98, help="Learning rate decay (SGD only)")
 parser.add_argument("--min_lr", type=float, default=1e-6, help="Minimum learning rate (SGD only)")
 parser.add_argument("--lr_shrink", type=float, default=0.5, help="Shrink the learning rate if the validation metric decreases (1 to disable)")
@@ -131,7 +130,7 @@ else:
     logger.info("No Iterative Training...")
 
 """
-Learning loop with and without Procrustes Iterative Learning
+Learning loop with and without BDMA Iterative Learning.
 """
 for n_iter in range(params.n_refinement + 1):
     tic = time.time()
@@ -144,8 +143,12 @@ for n_iter in range(params.n_refinement + 1):
         if n_iter > 0 or not hasattr(trainer, 'dico'):
             trainer.build_dictionary()
 
+    if n_iter == 0 and params.n_layers == 0:
+        # NOTE: Perform procrustes operation when its a linear op.
+        trainer.bdma_procrustes()
+
     # Standard MSE loss network.
-    f_loss, b_loss, n = trainer.bdma_step(stats, use_rcsls=params.rcsls)
+    f_loss, b_loss, n = trainer.bdma_step(stats)
     logger.info('Average F loss: {}, Average B loss: {}, Num Batches: {}'.format(f_loss, b_loss, n))
 
     # embeddings evaluation

@@ -3,32 +3,48 @@
 
 # Run all experiments related to BiFNN for word alignment.
 SEED=0
-input=$1
+INPUT_FILE=${1:-"jobs/test.jobs"}
 ITERATE=${2:-"False"}
 DICO_TRAIN=${3:-"combined"} # Change from "default"
-LOSS=${4:-"False"}
+LOSS=${4:-"m"} # m - MSE, r - rcsls, mr - MSE+RCSLS.
 MEM=40000
+WORD_VECTORS_LOC="data/word_vectors"
 
-# Start processing.
-while IFS= read -r LINE
+# Get VOCAB_SIZE.
+VOCAB_SIZE=`head -1 $INPUT_FILE`
+VOCAB_SIZE=($VOCAB_SIZE)
+
+# Get LAYER SIZE.
+NUM_LAYERS=`head -2 $INPUT_FILE | tail -1`
+NUM_LAYERS=($NUM_LAYERS)
+
+for V in "${VOCAB_SIZE[@]}" # Different VOCAB sizes.
 do
-    # Conditions.
-    SRC_LANG=`echo $LINE | awk -F " " '{print $1}'`
-    TGT_LANG=`echo $LINE | awk -F " " '{print $2}'`
-    SRC_EMB=`echo $LINE | awk -F " " '{print $3}'`
-    TGT_EMB=`echo $LINE | awk -F " " '{print $4}'`
-    NUM_LAYERS=`echo $LINE | awk -F " " '{print $5}'`
-    VOCAB_SIZE=`echo $LINE | awk -F " " '{print $6}'`
-    echo "JOB: $SRC_LANG, $TGT_LANG, $SRC_EMB, $TGT_EMB, $NUM_LAYERS, $VOCAB_SIZE"
+    for N in "${NUM_LAYERS[@]}" # Different Network sizes.
+    do
+        # Start processing.
+        while IFS= read -r LINE
+        do
+            # Conditions.
+            SRC_LANG=`echo $LINE | awk -F " " '{print $1}'`
+            TGT_LANG=`echo $LINE | awk -F " " '{print $2}'`
+            SRC_EMB="${WORD_VECTORS_LOC}/${SRC_LANG}/wiki.${SRC_LANG}.bin"
+            TGT_EMB="${WORD_VECTORS_LOC}/${TGT_LANG}/wiki.${TGT_LANG}.bin"
+            echo "JOB: $SRC_LANG, $TGT_LANG, $SRC_EMB, $TGT_EMB, $N, $V"
+            BASE_NAME="$SRC_LANG-$TGT_LANG-$N-$V-${ITERATE}-${DICO_TRAIN}-${LOSS}"
 
-    # Baseline alignment.
-    sbatch --account=pi_ferraro --job-name=$SRC_LANG-$TGT_LANG-$NUM_LAYERS-$VOCAB_SIZE-b --mem=$MEM --qos=medium+ \
-           bidnn.slurm $SRC_LANG $TGT_LANG $SRC_EMB $TGT_EMB $NUM_LAYERS "baseline" $SEED $ITERATE $VOCAB_SIZE $DICO_TRAIN $LOSS
+            # Baseline alignment.
+            sbatch --account=pi_ferraro --job-name=${BASE_NAME}-b \
+                   --mem=$MEM --qos=medium+ bidnn.slurm $SRC_LANG $TGT_LANG $SRC_EMB $TGT_EMB \
+                   $N "baseline" $SEED $ITERATE $V $DICO_TRAIN $LOSS
 
-    sbatch --account=pi_ferraro --job-name=$SRC_LANG-$TGT_LANG-$NUM_LAYERS-$VOCAB_SIZE-bdma --mem=$MEM --qos=medium+ \
-           bidnn.slurm $SRC_LANG $TGT_LANG $SRC_EMB $TGT_EMB $NUM_LAYERS "bdma" $SEED $ITERATE $VOCAB_SIZE $DICO_TRAIN $LOSS
+            sbatch --account=pi_ferraro --job-name=${BASE_NAME}-bdma \
+                   --mem=$MEM --qos=medium+ bidnn.slurm $SRC_LANG $TGT_LANG $SRC_EMB $TGT_EMB $N \
+                   "bdma" $SEED $ITERATE $V $DICO_TRAIN $LOSS
 
-    sbatch --account=pi_ferraro --job-name=$SRC_LANG-$TGT_LANG-$NUM_LAYERS-$VOCAB_SIZE-bdsh --mem=$MEM --qos=medium+ \
-           bidnn.slurm $SRC_LANG $TGT_LANG $SRC_EMB $TGT_EMB $NUM_LAYERS "bdma-shared" $SEED $ITERATE $VOCAB_SIZE $DICO_TRAIN $LOSS
-
-done < "$input"
+            sbatch --account=pi_ferraro --job-name=${BASE_NAME}-bdsh \
+                   --mem=$MEM --qos=medium+ bidnn.slurm $SRC_LANG $TGT_LANG $SRC_EMB $TGT_EMB $N \
+                   "bdma-shared" $SEED $ITERATE $V $DICO_TRAIN $LOSS
+        done <<< "`tail -n+3 $INPUT_FILE`"
+    done
+done
