@@ -30,13 +30,15 @@ parser.add_argument("--exp_path", type=str, default="", help="Where to store exp
 parser.add_argument("--exp_name", type=str, default="debug", help="Experiment name")
 parser.add_argument("--exp_id", type=str, default="", help="Experiment ID")
 parser.add_argument("--cuda", type=bool_flag, default=True, help="Run on GPU")
-parser.add_argument("--unsupervised", type=bool_flag, default=False, help="Unsupervised training")
 parser.add_argument("--iterative", type=bool_flag, default=False, help="Iterative building of dictionary.")
 parser.add_argument("--bidirectional", type=bool_flag, default=False, help="Bidirectional Manifold Alignment.")
 parser.add_argument("--shared", type=bool_flag, default=True, help="Shared reverse parameters.")
 parser.add_argument("--vocab_size", type=int, default=0, help="Size of Vocabulary for training.")
 parser.add_argument("--descending", type=bool_flag, default=True, help="Run on GPU")
+parser.add_argument("--loss", choices=['m', 'r', 'mr'], default='m', help="Types of losses.")
 parser.add_argument("--export", type=str, default="txt", help="Export embeddings after training (txt / pth)")
+parser.add_argument("--map_beta", type=float, default=0.001, help="Beta for orthogonalization")
+parser.add_argument("--unsupervised", type=bool_flag, default=False, help="Shared reverse parameters.")
 
 # Data
 parser.add_argument("--src_lang", type=str, default='en', help="Source language")
@@ -48,21 +50,34 @@ parser.add_argument("--max_vocab", type=int, default=200000, help="Maximum vocab
 parser.add_argument("--n_layers", type=int, default=0, help="BDMA layers")
 parser.add_argument("--n_hid_dim", type=int, default=1024, help="BDMA hidden layer dimensions")
 parser.add_argument("--n_dropout", type=float, default=0., help="BDMA dropout")
+parser.add_argument("--n_rev_beta", type=float, default=1.0, help="BDMA Reverse Loss Learning Rate")
 parser.add_argument("--n_input_dropout", type=float, default=0.1, help="BDMA input dropout")
 parser.add_argument("--n_steps", type=int, default=5, help="BDMA steps")
 parser.add_argument("--n_lambda", type=float, default=1, help="BDMA loss feedback coefficient")
 parser.add_argument("--n_smooth", type=float, default=0.1, help="BDMA smooth predictions")
 parser.add_argument("--map_clip_weights", type=float, default=0, help="Clip discriminator weights (0 to disable)")
 
-# Training refinement
+# Training refinement.
 parser.add_argument("--n_refinement", type=int, default=10, help="Number of refinement iterations (0 to disable the refinement procedure)")
 parser.add_argument("--n_epochs", type=int, default=5, help="Number of epochs")
 parser.add_argument("--epoch_size", type=int, default=1000000, help="Iterations per epoch")
 parser.add_argument("--batch_size", type=int, default=256, help="Batch size")
-parser.add_argument("--map_optimizer", type=str, default="adam,lr=0.001", help="Mapping optimizer")
+parser.add_argument("--map_optimizer", type=str, default="sgd,lr=0.1", help="Mapping optimizer")
+parser.add_argument("--dis_optimizer", type=str, default="sgd,lr=0.1", help="Discriminator optimizer")
 parser.add_argument("--lr_decay", type=float, default=0.98, help="Learning rate decay (SGD only)")
 parser.add_argument("--min_lr", type=float, default=1e-6, help="Minimum learning rate (SGD only)")
 parser.add_argument("--lr_shrink", type=float, default=0.5, help="Shrink the learning rate if the validation metric decreases (1 to disable)")
+
+# discriminator
+parser.add_argument("--dis_layers", type=int, default=2, help="Discriminator layers")
+parser.add_argument("--dis_hid_dim", type=int, default=2048, help="Discriminator hidden layer dimensions")
+parser.add_argument("--dis_dropout", type=float, default=0., help="Discriminator dropout")
+parser.add_argument("--dis_input_dropout", type=float, default=0.1, help="Discriminator input dropout")
+parser.add_argument("--dis_steps", type=int, default=5, help="Discriminator steps")
+parser.add_argument("--dis_lambda", type=float, default=1, help="Discriminator loss feedback coefficient")
+parser.add_argument("--dis_most_frequent", type=int, default=75000, help="Select embeddings of the k most frequent words for discrimination (0 to disable)")
+parser.add_argument("--dis_smooth", type=float, default=0.1, help="Discriminator smooth predictions")
+parser.add_argument("--dis_clip_weights", type=float, default=0, help="Clip discriminator weights (0 to disable)")
 
 # Dictionary creation parameters (for refinement)
 parser.add_argument("--dico_train", type=str, default="default", help="Path to training dictionary (default: use identical character strings)")
@@ -77,6 +92,7 @@ parser.add_argument("--dico_max_size", type=int, default=0, help="Maximum genera
 # Reload pre-trained embeddings
 parser.add_argument("--src_emb", type=str, default='', help="Reload source embeddings")
 parser.add_argument("--tgt_emb", type=str, default='', help="Reload target embeddings")
+# parser.add_argument("--normalize_embeddings", type=str, default="renorm", help="Normalize embeddings before training")
 parser.add_argument("--normalize_embeddings", type=str, default="", help="Normalize embeddings before training")
 
 # parse parameters
@@ -84,13 +100,13 @@ params = parser.parse_args()
 
 # check parameters
 assert not params.cuda or torch.cuda.is_available()
-assert params.dico_train in ["identical_char", "default"] or os.path.isfile(params.dico_train)
+assert params.dico_train in ["identical_char", "default", "combined"] or os.path.isfile(params.dico_train)
 assert params.dico_build in ["S2T", "T2S", "S2T|T2S", "S2T&T2S"]
 assert params.dico_max_size == 0 or params.dico_max_size < params.dico_max_rank
 assert params.dico_max_size == 0 or params.dico_max_size > params.dico_min_size
 assert os.path.isfile(params.src_emb)
 assert os.path.isfile(params.tgt_emb)
-assert params.dico_eval == 'default' or os.path.isfile(params.dico_eval)
+assert params.dico_eval == 'default' or params.dico_eval == 'combined' or os.path.isfile(params.dico_eval)
 assert params.export in ["", "txt", "pth"]
 
 # Check BDMA Parameters.
@@ -100,6 +116,13 @@ assert 0 <= params.n_smooth < 0.5
 assert params.n_lambda > 0 and params.n_steps > 0
 assert 0 < params.lr_shrink <= 1
 
+if params.unsupervised:
+    assert 0 <= params.dis_dropout < 1
+    assert 0 <= params.dis_input_dropout < 1
+    assert 0 <= params.dis_smooth < 0.5
+    assert params.dis_lambda > 0 and params.dis_steps > 0
+    assert 0 < params.lr_shrink <= 1
+
 # Torch random values.
 torch.manual_seed(params.seed)
 np.random.seed(params.seed)
@@ -108,8 +131,9 @@ torch.backends.cudnn.benchmark = False
 
 # build logger / model / trainer / evaluator
 logger = initialize_exp(params)
-src_emb, tgt_emb, mapping = build_bdma_model(params, True)
-trainer = Trainer(src_emb, tgt_emb, mapping, None, params)
+print(params.unsupervised)
+src_emb, tgt_emb, mapping, discriminator, rev_discriminator = build_bdma_model(params, params.unsupervised)
+trainer = Trainer(src_emb, tgt_emb, mapping, discriminator, params, rev_discriminator=rev_discriminator)
 evaluator = Evaluator(trainer)
 
 # load a training dictionary. if a dictionary path is not provided, use a default
@@ -117,12 +141,8 @@ evaluator = Evaluator(trainer)
 trainer.load_training_dico(params.dico_train, size=params.vocab_size,
                            descending=params.descending)
 
-# define the validation metric
-if params.unsupervised:
-    VALIDATION_METRIC = VALIDATION_METRIC_UNSUP
-else:
-    VALIDATION_METRIC = VALIDATION_METRIC_UNSUP if params.dico_train == 'identical_char' else VALIDATION_METRIC_SUP
-
+# define the validation metric.
+VALIDATION_METRIC = VALIDATION_METRIC_UNSUP if params.dico_train == 'identical_char' else VALIDATION_METRIC_SUP
 logger.info("Validation metric: %s" % VALIDATION_METRIC)
 
 # Check.
@@ -132,25 +152,29 @@ else:
     logger.info("No Iterative Training...")
 
 """
-Learning loop with and without Procrustes Iterative Learning
+Learning loop with and without BDMA Iterative Learning.
 """
-for n_iter in range(params.n_refinement + 1):
+for n_iter in range(0, params.n_epochs):
     tic = time.time()
-    stats = {'MSE_COSTS': []}
+    stats = {'MSE_COSTS': [], 'DIS_COSTS': []}
     logger.info('Starting iteration %i...' % n_iter)
 
     # Build a dictionary from aligned embeddings (unless
     # it is the first iteration and we use the init one)
-    if params.iterative:
-        if n_iter > 0 or not hasattr(trainer, 'dico'):
-            trainer.build_dictionary()
+    # if params.iterative and params.unsupervised is not True:
+    #     if n_iter > 0 or not hasattr(trainer, 'dico'):
+    #         trainer.build_dictionary()
+
+    # if n_iter == 0 and params.n_layers == 0 and params.unsupervised is not True:
+    #     # NOTE: Perform procrustes operation when its a linear op.
+    #     trainer.bdma_procrustes()
 
     # Standard MSE loss network.
-    logger.info("Begin Supervised training...")
-    f_loss, b_loss, n = trainer.bdma_step(stats)
     if params.unsupervised:
-        logger.info("Begin Unsupervised training...")
+        logger.info("----> ADVERSARIAL TRAINING <----")
         f_loss, b_loss, n = trainer.bdma_unsup_step(stats)
+    else:
+        f_loss, b_loss, n = trainer.bdma_step(stats)
 
     logger.info('Average F loss: {}, Average B loss: {}, Num Batches: {}'.format(f_loss, b_loss, n))
 
@@ -162,6 +186,12 @@ for n_iter in range(params.n_refinement + 1):
     logger.info("__log__:%s" % json.dumps(to_log))
     trainer.save_best_bdma(to_log, VALIDATION_METRIC)
     logger.info('End of iteration %i.\n\n' % n_iter)
+
+    # update the learning rate (stop if too small)
+    trainer.update_lr(to_log, VALIDATION_METRIC)
+    if trainer.map_optimizer.param_groups[0]['lr'] < params.min_lr:
+        logger.info('Learning rate < 1e-6. BREAK.')
+        break
 
 
 # export embeddings

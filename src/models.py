@@ -5,12 +5,15 @@
 # LICENSE file in the root directory of this source tree.
 #
 
+from logging import getLogger
+
 import torch
 from torch import nn
 import torch.nn.functional as F
 
 from .utils import load_embeddings, normalize_embeddings
 
+logger = getLogger()
 
 class Discriminator(nn.Module):
 
@@ -34,36 +37,14 @@ class Discriminator(nn.Module):
         layers.append(nn.Sigmoid())
         self.layers = nn.Sequential(*layers)
 
-    def forward(self, x):
-        assert x.dim() == 2 and x.size(1) == self.emb_dim
-        return self.layers(x).view(-1)
-
-
-class Discriminator(nn.Module):
-
-    def __init__(self, params):
-        super(Discriminator, self).__init__()
-
-        self.emb_dim = params.emb_dim
-        self.dis_layers = params.dis_layers
-        self.dis_hid_dim = params.dis_hid_dim
-        self.dis_dropout = params.dis_dropout
-        self.dis_input_dropout = params.dis_input_dropout
-
-        layers = [nn.Dropout(self.dis_input_dropout)]
-        for i in range(self.dis_layers + 1):
-            input_dim = self.emb_dim if i == 0 else self.dis_hid_dim
-            output_dim = 1 if i == self.dis_layers else self.dis_hid_dim
-            layers.append(nn.Linear(input_dim, output_dim))
-            if i < self.dis_layers:
-                layers.append(nn.LeakyReLU(0.2))
-                layers.append(nn.Dropout(self.dis_dropout))
-        layers.append(nn.Sigmoid())
-        self.layers = nn.Sequential(*layers)
+        logger.info("---Discriminator Network Structure---")
+        logger.info(self.layers)
+        logger.info("---Discriminator Network Structure---")
 
     def forward(self, x):
         assert x.dim() == 2 and x.size(1) == self.emb_dim
         return self.layers(x).view(-1)
+
 
 def build_model(params, with_dis):
     """
@@ -137,10 +118,10 @@ class BiFNN(nn.Module):
                 weights = nn.Parameter(layers[-1].weight.data)
                 layers[-1].weight.data = weights.clone()
                 reverse[0].weight.data = layers[-1].weight.data.t()
-                self.all_weights.append(layers[-1].weight)
             else:
-                self.all_weights.append(layers[-1].weight)
                 self.all_weights.append(reverse[0].weight)
+
+            self.all_weights.append(layers[-1].weight)
 
             if i < self.n_layers:
                 layers.append(nn.LeakyReLU(0.1))
@@ -154,10 +135,10 @@ class BiFNN(nn.Module):
         self.layers = nn.Sequential(*layers)
         self.reverse = nn.Sequential(*reverse)
 
-        print("---Network Structure---")
-        print(self.layers)
-        print(self.reverse)
-        print("---Network Structure---")
+        logger.info("---Mapping Network Structure---")
+        logger.info(self.layers)
+        logger.info(self.reverse)
+        logger.info("---Mapping Network Structure---")
 
     def forward(self, x, fdir=True):
         assert x.dim() == 2 and x.size(1) == self.emb_dim
@@ -188,26 +169,29 @@ def build_bdma_model(params, with_dis):
 
     # Mapping
     mapping = nn.DataParallel(BiFNN(params)) # For multi-gpu parallelism.
-    # mapping = BiFNN(params)
 
-    # if getattr(params, 'map_id_init', True):
-    #     mapping.weight.data.copy_(torch.diag(torch.ones(params.emb_dim)))
+    # Discriminator
+    discriminator = None
+    rev_discriminator = None
+    if with_dis:
+        discriminator = Discriminator(params)
+        if params.bidirectional:
+            rev_discriminator = Discriminator(params)
 
-    # discriminator
-    # discriminator = Discriminator(params) if with_dis else None
-
-    # cuda
+    # Cuda
     if params.cuda:
         src_emb.cuda()
         if params.tgt_lang:
             tgt_emb.cuda()
         mapping.cuda()
-        # if with_dis:
-        #     discriminator.cuda()
+        if with_dis:
+            discriminator.cuda()
+            if params.bidirectional:
+                rev_discriminator.cuda()
 
     # normalize embeddings
     params.src_mean = normalize_embeddings(src_emb.weight.data, params.normalize_embeddings)
     if params.tgt_lang:
         params.tgt_mean = normalize_embeddings(tgt_emb.weight.data, params.normalize_embeddings)
 
-    return src_emb, tgt_emb, mapping
+    return src_emb, tgt_emb, mapping, discriminator, rev_discriminator

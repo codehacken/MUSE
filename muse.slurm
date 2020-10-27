@@ -2,7 +2,7 @@
 
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=8
-#SBATCH --gres=gpu:1
+#SBATCH --gres=gpu:2
 #SBATCH --partition=gpu
 #SBATCH --output=output/slurm-%x.out
 #SBATCH --error=output/slurm-%x.err
@@ -30,45 +30,73 @@ SEED=$7
 ITERATE=$8
 VOCAB_SIZE=$9
 DICO_TRAIN=${10:-"default"}
+TRAIN_TYPE=${11:-"supervised"}
 
 # Pre-defined.
+BATCH_SIZE=128
 N_HID_DIM=4096
 MAX_VOCAB=200000 # Original is 400000
 NUM_EPOCHS=25
 MAX_CLIP_WEIGHTS=0
+N_REFINEMENT_EPOCHS=0
 
 # Verification...
 echo "Alignment Languages: Source: $SRC_LANG Target: $TGT_LANG"
 echo "Embeddings: Source: $SRC_EMB Target: $TGT_EMB Maximum Vocab Size: $MAX_VOCAB"
-echo "Job Type: $JOB_TYPE, Vocab Size: ${VOCAB_SIZE}"
+echo "Job Type: $JOB_TYPE, Model Type: ${TRAIN_TYPE}, Vocab Size: ${VOCAB_SIZE}"
 echo "Hyperparameters: Seed: $SEED"
 
 # Once Manifold Alignment is complete.
 echo "Model training..."
-NAME="${SRC_LANG}_${TGT_LANG}_${VOCAB_SIZE}_${JOB_TYPE}"
+NAME="${SRC_LANG}_${TGT_LANG}_${VOCAB_SIZE}_${JOB_TYPE}_${TRAIN_TYPE}"
 EXP_PATH=/scratch/$SLURM_JOB_ID
 EMB_LOC=/scratch/$SLURM_JOB_ID/debug/${NAME}
 
-if [[ ( "$JOB_TYPE" == "muse" ) ]]
+if [[ ( "$JOB_TYPE" == "muse_semi" ) ]]
 then
-    echo "Training baseline MUSE-SUPERVISED model..."
+    N_REFINEMENT_EPOCHS=5
+fi
 
+if [[ ( "$TRAIN_TYPE" == "supervised" ) ]]
+then
+    if [[ ( "$JOB_TYPE" == "muse" ) ]]
+    then
+        echo "Training baseline MUSE-SUPERVISED model..."
+    fi
+
+    if [[ ( "$JOB_TYPE" == "muse_semi" ) ]]
+    then
+        echo "Training MUSE-SEMISUPERVISED model..."
+    fi
     # n-refinement is 0 by default for basic supervised model.
+    # m is a default loss and has no bearing on the model.
     python supervised.py --src_lang $SRC_LANG --tgt_lang $TGT_LANG \
-                         --src_emb $SRC_EMB --tgt_emb $TGT_EMB --n_refinement 0 \
+                         --src_emb $SRC_EMB --tgt_emb $TGT_EMB --n_refinement ${N_REFINEMENT_EPOCHS} \
                          --dico_train $DICO_TRAIN --seed $SEED \
-                         --export pth --exp_id ${NAME} --exp_path ${EXP_PATH} \
+                         --export pth --exp_id ${NAME} --exp_path ${EXP_PATH} --loss m \
                          --dico_eval combined  2> data/muse_baseline_results/${NAME}.results
 fi
 
-if [[ ( "$JOB_TYPE" == "muse_semi" ) ]]
+if [[ ( "$TRAIN_TYPE" == "unsupervised" ) ]]
 then
-    echo "Training MUSE Semisupervised model..."
-    python supervised.py --src_lang $SRC_LANG --tgt_lang $TGT_LANG \
-                         --src_emb $SRC_EMB --tgt_emb $TGT_EMB --n_refinement 5 \
-                         --dico_train $DICO_TRAIN --seed $SEED \
-                         --export pth --exp_id ${NAME} --exp_path ${EXP_PATH} \
-                         --dico_eval combined  2> data/muse_baseline_results/${NAME}.results
+    if [[ ( "$JOB_TYPE" == "muse" ) ]]
+    then
+        echo "Training baseline MUSE-UNSUPERVISED model..."
+    fi
+
+    if [[ ( "$JOB_TYPE" == "muse_semi" ) ]]
+    then
+        echo "Training baseline MUSE-UNSUPERVISED model with SUPEPVISED refinement..."
+    fi
+
+    # n-refinement is 0 by default for basic unsupervised model.
+    # NOTE: VOCAB_SIZE is not used as the entire embedding space is considered.
+    python unsupervised.py --src_lang $SRC_LANG --tgt_lang $TGT_LANG  \
+                           --src_emb $SRC_EMB --tgt_emb $TGT_EMB --n_refinement ${N_REFINEMENT_EPOCHS} \
+                           --batch_size ${BATCH_SIZE} --seed ${SEED} --export pth \
+                           --exp_id ${NAME} --exp_path ${EXP_PATH} \
+                           --dico_eval combined 2> data/muse_baseline_results/${NAME}.results
+
 fi
 
 echo "Training Completed... Starting Evaluation..."

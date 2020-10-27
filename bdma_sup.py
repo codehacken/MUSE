@@ -35,6 +35,7 @@ parser.add_argument("--bidirectional", type=bool_flag, default=False, help="Bidi
 parser.add_argument("--shared", type=bool_flag, default=True, help="Shared reverse parameters.")
 parser.add_argument("--vocab_size", type=int, default=0, help="Size of Vocabulary for training.")
 parser.add_argument("--descending", type=bool_flag, default=True, help="Run on GPU")
+parser.add_argument("--procrustes_init", type=bool_flag, default=False, help="Run on GPU")
 parser.add_argument("--loss", choices=['m', 'r', 'mr'], default='m', help="Types of losses.")
 parser.add_argument("--export", type=str, default="txt", help="Export embeddings after training (txt / pth)")
 parser.add_argument("--map_beta", type=float, default=0.001, help="Beta for orthogonalization")
@@ -58,7 +59,7 @@ parser.add_argument("--map_clip_weights", type=float, default=0, help="Clip disc
 
 # Training refinement.
 parser.add_argument("--n_refinement", type=int, default=10, help="Number of refinement iterations (0 to disable the refinement procedure)")
-parser.add_argument("--n_epochs", type=int, default=5, help="Number of epochs")
+parser.add_argument("--n_epochs", type=int, default=10, help="Number of epochs")
 parser.add_argument("--epoch_size", type=int, default=1000000, help="Iterations per epoch")
 parser.add_argument("--batch_size", type=int, default=256, help="Batch size")
 parser.add_argument("--map_optimizer", type=str, default="adam,lr=0.0005", help="Mapping optimizer")
@@ -110,7 +111,7 @@ torch.backends.cudnn.benchmark = False
 
 # build logger / model / trainer / evaluator
 logger = initialize_exp(params)
-src_emb, tgt_emb, mapping = build_bdma_model(params, True)
+src_emb, tgt_emb, mapping, _, _ = build_bdma_model(params, False)
 trainer = Trainer(src_emb, tgt_emb, mapping, None, params)
 evaluator = Evaluator(trainer)
 
@@ -143,9 +144,11 @@ for n_iter in range(params.n_refinement + 1):
         if n_iter > 0 or not hasattr(trainer, 'dico'):
             trainer.build_dictionary()
 
+    # # if n_iter == 0 and params.n_layers == 0 and params.procrustes_init is True:
     if n_iter == 0 and params.n_layers == 0:
         # NOTE: Perform procrustes operation when its a linear op.
-        trainer.bdma_procrustes()
+        logger.info("Initialize embeddings with procrustes alignment...")
+        trainer.bdma_procrustes(with_reverse=True)
 
     # Standard MSE loss network.
     f_loss, b_loss, n = trainer.bdma_step(stats)

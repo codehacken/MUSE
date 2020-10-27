@@ -3,35 +3,51 @@
 
 # Run all experiments related to BiFNN for word alignment.
 SEED=0
-input=$1
-ITERATE=${2:-"False"}
-DICO_TRAIN=${3:-"combined"} # Change from "default"
+INPUT_FILE=$1
+TRAIN_TYPE=${2:-"supervised"} # Choose between supervised and unsupervised.
+ITERATE=${3:-"False"}
+DICO_TRAIN=${4:-"combined"} # Change from "default"
 MEM=40000
 
-# Start processing.
-while IFS= read -r LINE
+# Get VOCAB_SIZE.
+WORD_VECTORS_LOC="data/word_vectors"
+VOCAB_SIZE=`head -1 $INPUT_FILE`
+VOCAB_SIZE=($VOCAB_SIZE)
+
+# Get LAYER SIZE.
+NUM_LAYERS=`head -2 $INPUT_FILE | tail -1`
+NUM_LAYERS=($NUM_LAYERS)
+
+for V in "${VOCAB_SIZE[@]}" # Different VOCAB sizes.
 do
-    # Conditions.
-    SRC_LANG=`echo $LINE | awk -F " " '{print $1}'`
-    TGT_LANG=`echo $LINE | awk -F " " '{print $2}'`
-    SRC_EMB=`echo $LINE | awk -F " " '{print $3}'`
-    TGT_EMB=`echo $LINE | awk -F " " '{print $4}'`
-    NUM_LAYERS=`echo $LINE | awk -F " " '{print $5}'`
-    VOCAB_SIZE=`echo $LINE | awk -F " " '{print $6}'`
-    echo "JOB: $SRC_LANG, $TGT_LANG, $SRC_EMB, $TGT_EMB, $NUM_LAYERS, $VOCAB_SIZE"
+    for N in "${NUM_LAYERS[@]}" # Different Network sizes.
+    do
+        # Start processing.
+        while IFS= read -r LINE
+        do
+            # Conditions.
+            SRC_LANG=`echo $LINE | awk -F " " '{print $1}'`
+            TGT_LANG=`echo $LINE | awk -F " " '{print $2}'`
+            SRC_EMB="${WORD_VECTORS_LOC}/${SRC_LANG}/wiki.${SRC_LANG}.bin"
+            TGT_EMB="${WORD_VECTORS_LOC}/${TGT_LANG}/wiki.${TGT_LANG}.bin"
+            echo "JOB: $SRC_LANG, $TGT_LANG, $SRC_EMB, $TGT_EMB, $N, $V, $TRAIN_TYPE"
 
-    # Baseline alignment.
-    # Supervised jobs.
-    if [[ ( "$ITERATE" == "False" ) ]]
-    then
-        sbatch --account=pi_ferraro --job-name=$SRC_LANG-$TGT_LANG-muse2017 --mem=$MEM --qos=medium+ \
-               muse.slurm $SRC_LANG $TGT_LANG $SRC_EMB $TGT_EMB $NUM_LAYERS "muse" $SEED $ITERATE $VOCAB_SIZE $DICO_TRAIN
-    fi
+            # Baseline alignment.
+            # Supervised jobs.
+            if [[ ( "$ITERATE" == "False" ) ]]
+            then
+                sbatch --account=pi_ferraro --job-name=$SRC_LANG-$TGT_LANG-muse2017-$TRAIN_TYPE --mem=$MEM --qos=medium+ \
+                       muse.slurm $SRC_LANG $TGT_LANG $SRC_EMB $TGT_EMB $NUM_LAYERS "muse" $SEED $ITERATE \
+                       $VOCAB_SIZE $DICO_TRAIN $TRAIN_TYPE
+            fi
 
-    # Semi-supervised.
-    if [[ ( "$ITERATE" == "True" ) ]]
-    then
-        sbatch --account=pi_ferraro --job-name=$SRC_LANG-$TGT_LANG-muse-semi --mem=$MEM --qos=medium+ \
-               muse.slurm $SRC_LANG $TGT_LANG $SRC_EMB $TGT_EMB $NUM_LAYERS "muse_semi" $SEED $ITERATE $VOCAB_SIZE $DICO_TRAIN
-    fi
-done < "$input"
+            # Semi-supervised.
+            if [[ ( "$ITERATE" == "True" ) ]]
+            then
+                sbatch --account=pi_ferraro --job-name=$SRC_LANG-$TGT_LANG-muse-semi-$TRAIN_TYPE --mem=$MEM --qos=medium+ \
+                       muse.slurm $SRC_LANG $TGT_LANG $SRC_EMB $TGT_EMB $NUM_LAYERS "muse_semi" $SEED $ITERATE \
+                       $VOCAB_SIZE $DICO_TRAIN  $TRAIN_TYPE
+            fi
+        done <<< "`tail -n+3 $INPUT_FILE`"
+    done
+done

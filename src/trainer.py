@@ -12,6 +12,7 @@ https://github.com/facebookresearch/MUSE/issues/135
 
 import os
 from logging import getLogger
+import time
 import numpy as np
 import scipy
 import scipy.linalg
@@ -30,7 +31,7 @@ logger = getLogger()
 
 class Trainer(object):
 
-    def __init__(self, src_emb, tgt_emb, mapping, discriminator, params):
+    def __init__(self, src_emb, tgt_emb, mapping, discriminator, params, rev_discriminator=None):
         """
         Initialize trainer script.
         """
@@ -40,6 +41,7 @@ class Trainer(object):
         self.tgt_dico = getattr(params, 'tgt_dico', None)
         self.mapping = mapping
         self.discriminator = discriminator
+        self.rev_discriminator = rev_discriminator
         self.params = params
 
         # RCSLS implementation.
@@ -53,6 +55,11 @@ class Trainer(object):
         if hasattr(params, 'dis_optimizer'):
             optim_fn, optim_params = get_optimizer(params.dis_optimizer)
             self.dis_optimizer = optim_fn(discriminator.parameters(), **optim_params)
+
+            if params.bidirectional and rev_discriminator is not None:
+                optim_fn, optim_params = get_optimizer(params.dis_optimizer)
+                self.rev_dis_optimizer = optim_fn(rev_discriminator.parameters(), **optim_params)
+
         else:
             assert discriminator is None
 
@@ -61,7 +68,7 @@ class Trainer(object):
 
         self.decrease_lr = False
 
-    def get_dis_xy(self, volatile):
+    def get_dis_xy(self, volatile, reverse=False):
         """
         Get discriminator input batch / output target.
         """
@@ -76,13 +83,34 @@ class Trainer(object):
             tgt_ids = tgt_ids.cuda()
 
         # get word embeddings
-        src_emb = self.src_emb(Variable(src_ids, volatile=True))
-        tgt_emb = self.tgt_emb(Variable(tgt_ids, volatile=True))
-        src_emb = self.mapping(Variable(src_emb.data, volatile=volatile))
-        tgt_emb = Variable(tgt_emb.data, volatile=volatile)
+        if reverse:
+            # Reverse target and source.
+            with torch.no_grad():
+                src_emb = self.tgt_emb(Variable(tgt_ids))
+                tgt_emb = self.src_emb(Variable(src_ids))
+                tgt_emb = Variable(tgt_emb.data)
+            if volatile:
+                with torch.no_grad():
+                    src_emb = self.mapping(Variable(src_emb.data), fdir=False)
+            else:
+                src_emb = self.mapping(Variable(src_emb.data), fdir=False)
+        else:
+            with torch.no_grad():
+                src_emb = self.src_emb(Variable(src_ids))
+                tgt_emb = self.tgt_emb(Variable(tgt_ids))
+                tgt_emb = Variable(tgt_emb.data)
+            if volatile:
+                with torch.no_grad():
+                    src_emb = self.mapping(Variable(src_emb.data))
+            else:
+                src_emb = self.mapping(Variable(src_emb.data))
 
         # input / target
-        x = torch.cat([src_emb, tgt_emb], 0)
+        if reverse:
+            x = torch.cat([tgt_emb, src_emb], 0)
+        else:
+            x = torch.cat([src_emb, tgt_emb], 0)
+
         y = torch.FloatTensor(2 * bs).zero_()
         y[:bs] = 1 - self.params.dis_smooth
         y[bs:] = self.params.dis_smooth
@@ -90,7 +118,7 @@ class Trainer(object):
 
         return x, y
 
-    def dis_step(self, stats):
+    def dis_step(self, stats, reverse=False):
         """
         Train the discriminator.
         """
@@ -113,18 +141,49 @@ class Trainer(object):
         self.dis_optimizer.step()
         clip_parameters(self.discriminator, self.params.dis_clip_weights)
 
-    def mapping_step(self, stats):
+    def dis_r_step(self, stats):
+        """
+        Train the discriminator.
+        """
+        self.rev_discriminator.train()
+
+        # loss
+        x, y = self.get_dis_xy(volatile=True, reverse=True)
+        preds = self.rev_discriminator(Variable(x.data))
+        loss = F.binary_cross_entropy(preds, y)
+        stats['DIS_COSTS'].append(loss.data.item())
+
+        # check NaN
+        if (loss != loss).data.any():
+            logger.error("NaN detected (Reverse discriminator)")
+            exit()
+
+        # optim
+        self.rev_dis_optimizer.zero_grad()
+        loss.backward()
+        self.rev_dis_optimizer.step()
+        clip_parameters(self.rev_discriminator, self.params.dis_clip_weights)
+
+    def mapping_step(self, stats, parallel=False, reverse=False):
         """
         Fooling discriminator training step.
         """
         if self.params.dis_lambda == 0:
             return 0
 
-        self.discriminator.eval()
+        if reverse:
+            self.rev_discriminator.eval()
+        else:
+            self.discriminator.eval()
 
-        # loss
-        x, y = self.get_dis_xy(volatile=False)
-        preds = self.discriminator(x)
+        # loss.
+        x, y = self.get_dis_xy(volatile=False, reverse=reverse)
+
+        if reverse:
+            preds = self.rev_discriminator(x)
+        else:
+            preds = self.discriminator(x)
+
         loss = F.binary_cross_entropy(preds, 1 - y)
         loss = self.params.dis_lambda * loss
 
@@ -137,7 +196,7 @@ class Trainer(object):
         self.map_optimizer.zero_grad()
         loss.backward()
         self.map_optimizer.step()
-        self.orthogonalize()
+        # self.orthogonalize(parallel)
 
         return 2 * self.params.batch_size
 
@@ -196,7 +255,7 @@ class Trainer(object):
         U, S, V_t = scipy.linalg.svd(M, full_matrices=True)
         W.copy_(torch.from_numpy(U.dot(V_t)).type_as(W))
 
-    def bdma_procrustes(self):
+    def bdma_procrustes(self, with_reverse=False):
         """
         Find the best orthogonal matrix mapping using the Orthogonal Procrustes problem
         https://en.wikipedia.org/wiki/Orthogonal_Procrustes_problem
@@ -207,6 +266,13 @@ class Trainer(object):
         M = B.transpose(0, 1).mm(A).cpu().numpy()
         U, S, V_t = scipy.linalg.svd(M, full_matrices=True)
         W.copy_(torch.from_numpy(U.dot(V_t)).type_as(W))
+
+        if with_reverse:
+            logger.info("Performing reverse procrustes....")
+            W = self.mapping.module.reverse[0].weight.data
+            M = A.transpose(0, 1).mm(B).cpu().numpy()
+            U, S, V_t = scipy.linalg.svd(M, full_matrices=True)
+            W.copy_(torch.from_numpy(U.dot(V_t)).type_as(W))
 
 
     def bdma_step(self, stats):
@@ -257,7 +323,8 @@ class Trainer(object):
             if self.params.loss == "r" or self.params.loss == "mr":
                 # Negative Sampling.
                 neg_src_emb_trans = self.mapping(neg_src_emb)
-                f_rcsls_loss = self.criterionRCSLS(x, f_preds, y, neg_src_emb, neg_src_emb_trans, neg_tgt_emb)
+                f_rcsls_loss = self.criterionRCSLS(x, f_preds, y, neg_src_emb,
+                                                   neg_src_emb_trans, neg_tgt_emb)
                 f_loss += f_rcsls_loss
 
             # optimizer.
@@ -278,7 +345,10 @@ class Trainer(object):
                 if self.params.loss == "r" or self.params.loss == "mr":
                     # Negative Sampling.
                     neg_tgt_emb_trans = self.mapping(neg_tgt_emb, fdir=False)
-                    b_rcsls_loss = self.criterionRCSLS(y, b_preds, x, neg_tgt_emb, neg_tgt_emb_trans, neg_src_emb)
+                    b_rcsls_loss = self.criterionRCSLS(y, b_preds, x,
+                                                       neg_tgt_emb,
+                                                       neg_tgt_emb_trans,
+                                                       neg_src_emb)
                     b_loss += self.params.n_rev_beta * b_rcsls_loss
 
                 b_loss.backward()
@@ -299,82 +369,142 @@ class Trainer(object):
         """
         Train the mapping.
         """
-        self.mapping.train()
+        # self.mapping.train()
 
-        # Create batches.
-        A = self.src_emb.weight.data
-        B = self.tgt_emb.weight.data
-
-        # Shuffle.
-        r_a = torch.randperm(A.shape[0])
-        A = A[r_a]
-
-        r_b = torch.randperm(B.shape[0])
-        B = B[r_b]
-
-        # Define batches.
-        bs = self.params.batch_size
-        n1 = int(A.shape[0] / bs)
-        n2 = int(B.shape[0] / bs)
-        num_batches = n1 if n1 <= n2 else n2
-
-        # Minimum number of batches.
-        if num_batches == 0:
-            num_batches = 1
-
-        avg_f_loss = 0.0; avg_b_loss = 0.0;
-        for i in range(0, num_batches):
-            s = i * bs
-            e = (i + 1) * bs
-            x, y = A[s : e], B[s : e]
-
-            # Forward optimization.
-            # Zero Grad.
-            self.map_optimizer.zero_grad()
-
-            # Predictions.
-            f_preds = self.mapping(self.mapping(x), fdir=False)
-            f_loss = F.mse_loss(f_preds, x)
-
-            # Predictions.
-            b_preds = self.mapping(self.mapping(y, fdir=False))
-            b_loss = F.mse_loss(b_preds, y)
-
-            loss = f_loss + b_loss
-            loss.backward()
-            self.map_optimizer.step()
-            clip_parameters(self.mapping, self.params.map_clip_weights)
-
-            # optimizer.
-            # f_loss.backward()
-            # self.map_optimizer.step()
-            # clip_parameters(self.mapping, self.params.map_clip_weights)
-            avg_f_loss += f_loss.cpu()
-
-            # Backward optimization.
-            # Zero Grad.
-            # self.map_optimizer.zero_grad()
-
-
-            # optimizer.
-            # b_loss.backward()
-            # self.map_optimizer.step()
-            # clip_parameters(self.mapping, self.params.map_clip_weights)
-            avg_b_loss += b_loss.cpu()
-
-            # Collect loss information.
-            stats['MSE_COSTS'].append(f_loss.data.item())
-
-        self.mapping.eval()
-        return avg_f_loss / num_batches, avg_b_loss / num_batches, num_batches
+        # # Create batches.
+        # A = self.src_emb.weight.data
+        # B = self.tgt_emb.weight.data
+        #
+        # # if self.params.loss == "r" or self.params.loss == "mr":
+        # #     neg_src_emb = self.src_emb.weight.data
+        # #     neg_tgt_emb = self.tgt_emb.weight.data
+        #
+        # # Shuffle.
+        # # NOTE: Source and Target are NOT aligned.
+        # # r = torch.randperm(A.shape[0])
+        # # A = A[r]
+        # # B = B[r]
+        #
+        # bs = self.params.batch_size
+        # num_batches = int(A.shape[0] / bs)
+        #
+        # # if num_batches == 0:
+        # #     num_batches = 1
+        # #
+        # # if self.params.loss == "r" or self.params.loss == "mr":
+        # #     logger.info("Using RCSLS Loss...")
+        #
+        # avg_f_loss = 0.0; avg_b_loss = 0.0;
+        # print("Number Of Batches: {}".format(num_batches))
+        # for i in range(0, num_batches):
+        #     s = i * bs
+        #     e = (i + 1) * bs
+        #     x, y = A[s : e], B[s : e]
+        #
+        #     # Forward optimization.
+        #     # Predictions.
+        #     f_preds = self.mapping(self.mapping(x), fdir=False)
+        #     if self.params.loss == "m" or self.params.loss == "mr":
+        #         f_loss = F.mse_loss(f_preds, x)
+        #     else:
+        #         f_loss = 0
+        #
+        #     # if self.params.loss == "r" or self.params.loss == "mr":
+        #     #     # Negative Sampling.
+        #     #     neg_src_emb_trans = self.mapping(neg_src_emb)
+        #     #     # f_rcsls_loss = self.criterionRCSLS(x, f_preds, y, neg_src_emb, neg_src_emb_trans, neg_tgt_emb)
+        #     #     f_rcsls_loss = self.criterionRCSLS(x, f_preds, x, neg_src_emb, neg_src_emb_trans, neg_src_emb)
+        #     #     f_loss += f_rcsls_loss
+        #
+        #     # optimizer.
+        #     # Zero Grad.
+        #     self.map_optimizer.zero_grad()
+        #     f_loss.backward()
+        #     self.map_optimizer.step()
+        #     clip_parameters(self.mapping, self.params.map_clip_weights)
+        #
+        #     # Collect loss information.
+        #     stats['MSE_COSTS'].append(f_loss.data.item())
+        #     avg_f_loss += f_loss.cpu()
 
 
-    def orthogonalize(self):
+
+
+
+        #     # Reverse optimization.
+        #     if self.params.bidirectional:
+        #         b_preds = self.mapping(self.mapping(y, fdir=False))
+        #
+        #         if self.params.loss == "m" or self.params.loss == "mr":
+        #             b_loss = self.params.n_rev_beta * F.mse_loss(b_preds, y)
+        #         else:
+        #             b_loss = 0
+        #
+        #         # if self.params.loss == "r" or self.params.loss == "mr":
+        #         #     # Negative Sampling.
+        #         #     neg_tgt_emb_trans = self.mapping(neg_tgt_emb, fdir=False)
+        #         #     b_rcsls_loss = self.criterionRCSLS(y, b_preds, x, neg_tgt_emb, neg_tgt_emb_trans, neg_src_emb)
+        #         #     b_loss += self.params.n_rev_beta * b_rcsls_loss
+        #
+        #         self.map_optimizer.zero_grad()
+        #         b_loss.backward()
+        #         self.map_optimizer.step()
+        #         clip_parameters(self.mapping, self.params.map_clip_weights)
+        #         avg_b_loss += b_loss.cpu()
+        #
+        # self.mapping.eval()
+        # # self.orthogonalize_bdma()
+
+        """
+        Fooling discriminator training step.
+        """
+        n_words_proc = 0
+        tic = time.time()
+        for n_iter in range(0, self.params.epoch_size, self.params.batch_size):
+            # Discriminator training.
+            # Forward Training.
+            for _ in range(self.params.dis_steps):
+                self.dis_step(stats)
+
+            # if self.params.bidirectional:
+            #     for _ in range(self.params.dis_steps):
+            #         self.dis_r_step(stats)
+
+            # Mapping Step.
+            n_words_proc += self.mapping_step(stats)
+
+            # Reverse Training.
+            # if self.params.bidirectional:
+            #     n_words_proc += self.mapping_step(stats, reverse=True)
+
+            if n_iter % 500 == 0:
+                stats_str = [('DIS_COSTS', 'Discriminator loss')]
+                stats_log = ['%s: %.4f' % (v, np.mean(stats[k]))
+                             for k, v in stats_str if len(stats[k]) > 0]
+                stats_log.append('%i samples/s' % int(n_words_proc / (time.time() - tic)))
+                logger.info(('%06i - ' % n_iter) + ' - '.join(stats_log))
+
+                # reset
+                tic = time.time()
+                n_words_proc = 0
+                for k, _ in stats_str:
+                    del stats[k][:]
+
+        # return avg_f_loss / num_batches, \
+        #        avg_b_loss / num_batches, num_batches
+        return 0.0, 0.0, 0.0
+
+
+    def orthogonalize(self, parallel=False):
         """
         Orthogonalize the mapping.
         """
         if self.params.map_beta > 0:
-            W = self.mapping.weight.data
+            if parallel:
+                W = self.mapping.module.layers[0].weight.data
+            else:
+                W = self.mapping.weight.data
+
             beta = self.params.map_beta
             W.copy_((1 + beta) * W - beta * W.mm(W.transpose(0, 1).mm(W)))
 
